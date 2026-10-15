@@ -87,8 +87,8 @@ func TestBuildNewSessionFull(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "<instructions>\nbe brief\n\nuse Go\n</instructions>\n\n" +
-		"<conversation_history>\n<user>first</user>\n<assistant>answer one</assistant>\n<tool>tool output</tool>\n</conversation_history>\n\n" +
-		"<current_request>\nsecond\n\nthird\n</current_request>"
+		"<conversation_history>\n<user>first</user>\n<assistant>answer one</assistant>\n</conversation_history>\n\n" +
+		"<current_request>\n<tool>tool output</tool>\n\nsecond\n\nthird\n</current_request>"
 	if got != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 	}
@@ -157,8 +157,79 @@ func TestBuildTooLarge(t *testing.T) {
 }
 
 func TestInstructions(t *testing.T) {
-	msgs := []Message{{RoleSystem, "a"}, {RoleUser, "u"}, {RoleDeveloper, "b"}}
+	msgs := []Message{{Role: RoleSystem, Text: "a"}, {Role: RoleUser, Text: "u"}, {Role: RoleDeveloper, Text: "b"}}
 	if got := Instructions(msgs); got != "a\n\nb" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func toolConversation(t *testing.T) []Message {
+	t.Helper()
+	call := func(id, name, args string) RawToolCall {
+		var c RawToolCall
+		c.ID, c.Type, c.Function.Name, c.Function.Arguments = id, "function", name, args
+		return c
+	}
+	return mustParse(t,
+		raw("user", "weather in Rome and Paris?"),
+		RawMessage{Role: "assistant", Content: json.RawMessage("null"), ToolCalls: []RawToolCall{
+			call("call_1", "get_weather", `{"city":"Rome"}`), call("call_2", "get_weather", `{"city":"Paris"}`)}},
+		RawMessage{Role: "tool", ToolCallID: "call_1", Content: json.RawMessage(`"sunny"`)},
+		RawMessage{Role: "function", Name: "get_weather", ToolCallID: "call_2", Content: json.RawMessage(`"rain"`)},
+	)
+}
+
+func TestToolMessages(t *testing.T) {
+	msgs := toolConversation(t)
+	if msgs[1].ToolCalls[1].Arguments != `{"city":"Paris"}` || msgs[2].Name != "get_weather" || msgs[3].Role != RoleTool {
+		t.Fatalf("parsed %+v", msgs)
+	}
+	res := ToolResults(msgs)
+	if len(res) != 2 || res["call_1"] != "sunny" || res["call_2"] != "rain" {
+		t.Fatalf("results %v", res)
+	}
+	if len(CurrentRequest(msgs)) != 0 {
+		t.Fatal("tool results are not user requests")
+	}
+
+	got, err := Build(msgs, true)
+	want := `<tool tool_call_id="call_1" name="get_weather">sunny</tool>` + "\n\n" +
+		`<tool tool_call_id="call_2" name="get_weather">rain</tool>`
+	if err != nil || got != want {
+		t.Fatalf("resumed %q, %v", got, err)
+	}
+
+	got, _ = Build(msgs, false)
+	want = "<conversation_history>\n<user>weather in Rome and Paris?</user>\n" +
+		`<assistant><tool_call id="call_1" name="get_weather">{"city":"Rome"}</tool_call>` + "\n" +
+		`<tool_call id="call_2" name="get_weather">{"city":"Paris"}</tool_call></assistant>` + "\n" +
+		"</conversation_history>\n\n<current_request>\n" +
+		`<tool tool_call_id="call_1" name="get_weather">sunny</tool>` + "\n\n" +
+		`<tool tool_call_id="call_2" name="get_weather">rain</tool>` + "\n</current_request>"
+	if got != want {
+		t.Fatalf("new session:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestAssistantTextAndToolCall(t *testing.T) {
+	m := Message{Role: RoleAssistant, Text: "checking", ToolCalls: []ToolCall{{ID: "c", Name: "f", Arguments: "{}"}}}
+	if got := renderAssistant(m); got != "<assistant>checking\n<tool_call id=\"c\" name=\"f\">{}</tool_call></assistant>" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestLegacyFunctionCall(t *testing.T) {
+	msgs := mustParse(t,
+		raw("user", "q"),
+		RawMessage{Role: "assistant", FunctionCall: &struct {
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		}{"f", "{}"}},
+		RawMessage{Role: "function", Name: "f", Content: json.RawMessage(`"r"`)},
+	)
+	got, _ := Build(msgs, false)
+	if !strings.Contains(got, `<assistant><tool_call name="f">{}</tool_call></assistant>`) ||
+		!strings.Contains(got, `<tool tool_call_id="" name="f">r</tool>`) {
+		t.Fatalf("got %s", got)
 	}
 }

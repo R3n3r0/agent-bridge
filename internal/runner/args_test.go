@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/r3n3r0/agent-bridge/internal/config"
 )
@@ -109,5 +110,32 @@ func TestEnv(t *testing.T) {
 	want = []string{"PATH=/bin", "HOME=/h", "ANTHROPIC_API_KEY=k", "ANTHROPIC_AUTH_TOKEN=t", "ANTHROPIC_MODEL=m"}
 	if !reflect.DeepEqual(api, want) {
 		t.Fatalf("api env %q", api)
+	}
+}
+
+func TestArgsClientTools(t *testing.T) {
+	got := Args(Spec{ToolsEnabled: false, ClientTools: "/t/mcp.json", MCPConfig: "/agent.json"})
+	want := append(append([]string{}, base...), "--tools", "", "--allowedTools", "mcp__functions", "--mcp-config", "/t/mcp.json")
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("chat-only: %q", got)
+	}
+	got = Args(Spec{ToolsEnabled: true, AllowedTools: []string{"Read"}, MCPConfig: "/agent.json", ClientTools: "/t/mcp.json", ResumeID: "s"})
+	want = append(append([]string{}, base...), "--allowedTools", "Read,mcp__functions",
+		"--mcp-config", "/agent.json", "--mcp-config", "/t/mcp.json", "--resume", "s")
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("tools: %q", got)
+	}
+}
+
+func TestWithClientToolsTimeout(t *testing.T) {
+	env := WithClientToolsTimeout([]string{"A=1"}, 2*time.Second)
+	if env[len(env)-1] != "MCP_TOOL_TIMEOUT=2000" {
+		t.Fatalf("env %q", env)
+	}
+	if got := WithClientToolsTimeout([]string{"MCP_TOOL_TIMEOUT=5"}, time.Second); len(got) != 1 {
+		t.Fatalf("existing value overridden: %q", got)
+	}
+	if got := WithClientToolsTimeout(nil, 0); got[0] != "MCP_TOOL_TIMEOUT=86400000" {
+		t.Fatalf("default %q", got)
 	}
 }

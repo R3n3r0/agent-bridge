@@ -89,6 +89,50 @@ restituita nell'header `X-Session-Id` della risposta.
 Riferimento completo: [docs/configuration.md](docs/configuration.md). Esempio
 commentato: [examples/agents.example.json](examples/agents.example.json).
 
+## Function calling (tools)
+
+Le funzioni definite dal client con `tools` funzionano come con l'API OpenAI:
+il modello risponde con `tool_calls` e `finish_reason: "tool_calls"`, il client
+esegue le funzioni e rimanda i risultati con messaggi `role: "tool"`, e il
+modello prosegue. Il ciclo standard degli SDK funziona senza modifiche, anche
+in streaming (`delta.tool_calls`) e senza header di sessione.
+
+```python
+r = client.chat.completions.create(model="coder", messages=messages, tools=tools)
+if r.choices[0].finish_reason == "tool_calls":
+    messages.append(r.choices[0].message)
+    for call in r.choices[0].message.tool_calls:
+        messages.append({"role": "tool", "tool_call_id": call.id,
+                         "content": run(call.function.name, call.function.arguments)})
+    r = client.chat.completions.create(model="coder", messages=messages, tools=tools)
+```
+
+Come funziona: le funzioni del client vengono offerte alla CLI come tool di un
+server MCP standard (il bridge stesso, sottocomando `mcp-tools`). Quando il
+modello ne chiama una, il bridge restituisce la chiamata al client e tiene in
+attesa il processo; la richiesta successiva viene riconosciuta dai
+`tool_call_id` e il processo riprende esattamente da dove si era fermato. Le
+funzioni vengono eseguite dal client, mai sul server, quindi sono disponibili
+anche per gli agenti solo chat e i modelli built-in.
+
+Supportati: `tools` (tipo `function`), `tool_choice` (`auto`, `none`,
+`required`, funzione specifica), `parallel_tool_calls` (chiamate parallele
+restituite insieme) e il formato deprecato `functions`/`function_call`.
+
+Differenze da conoscere:
+
+- `tool_choice` diverso da `auto`/`none` e `parallel_tool_calls: false` sono
+  resi come istruzioni al modello: il modello li rispetta, ma non sono vincoli
+  rigidi come nell'API OpenAI. Anche gli schemi `parameters` (e `strict`)
+  guidano il modello ma non vengono imposti.
+- Mentre attende i risultati, il processo occupa uno slot di concorrenza. Se i
+  risultati non arrivano entro `client_tools.wait_timeout_seconds` (default
+  600) il processo viene fermato; una richiesta successiva con i risultati
+  riparte da un processo nuovo con l'intera cronologia, quindi funziona
+  comunque, solo più lentamente.
+- Con il formato deprecato `functions` i risultati non hanno id: ogni chiamata
+  chiude il processo e la richiesta successiva riparte dalla cronologia.
+
 ## Sviluppo con abbonamento, produzione con API key
 
 La modalità è scelta solo da configurazione, con la variabile obbligatoria
@@ -185,9 +229,10 @@ turno di prova su Haiku.
 
 ## Limiti noti
 
-- I parametri OpenAI `tools`, `tool_choice`, `functions`, `response_format`,
-  `temperature`, `top_p`, `n`, `logprobs`, `max_tokens` sono accettati e
-  ignorati: i tool li gestisce la CLI.
+- I parametri OpenAI `response_format`, `temperature`, `top_p`, `n`,
+  `logprobs`, `max_tokens` sono accettati e ignorati.
+- Il function calling è supportato con le differenze descritte nella sezione
+  dedicata (vincoli di `tool_choice` e degli schemi espressi come istruzioni).
 - Solo contenuto testuale: immagini e audio producono 400 `unsupported_content`.
 - Nessun supporto a `/v1/responses`, `/v1/embeddings`, immagini, audio, né ad
   altri provider.
@@ -205,20 +250,17 @@ turno di prova su Haiku.
 
 ## FAQ
 
-**Supporta il function calling di OpenAI (`tools`, `tool_calls`)?** No. I
-parametri `tools` e `tool_choice` sono accettati e ignorati, e la risposta non
-contiene mai `tool_calls`: il server non restituisce al client le chiamate a
-funzione da eseguire. I tool funzionano invece *dentro* l'agente: lettura e
-modifica di file, comandi, ricerca e server MCP (`mcp_config`) vengono eseguiti
-dalla CLI sulla macchina del server, con i permessi configurati, e il client
-riceve solo il risultato finale. Per esporre funzioni proprie all'agente, la
-strada è un server MCP.
+**Supporta il function calling di OpenAI (`tools`, `tool_calls`)?** Sì, con lo
+stesso formato e lo stesso ciclo richiesta/risultato dell'API OpenAI (vedi
+"Function calling"). In più l'agente può usare i propri tool sul server
+(file, comandi, ricerca, server MCP in `mcp_config`) secondo i permessi
+configurati: quelli restano interni e il client ne vede solo l'effetto.
 
-**Funziona esattamente come l'API OpenAI?** Per il sottoinsieme usato dagli SDK
-per chat e streaming sì (stessi formati di richiesta, risposta, chunk, errori e
-`usage`). Non ci sono `temperature`, `n`, `logprobs`, output strutturato,
-immagini o audio, e ogni turno può durare minuti perché l'agente lavora in più
-passi.
+**Funziona esattamente come l'API OpenAI?** Per chat, streaming e function
+calling gli SDK funzionano senza modifiche (stessi formati di richiesta,
+risposta, chunk, errori e `usage`). Non ci sono `temperature`, `n`,
+`logprobs`, output strutturato, immagini o audio, e un turno può durare minuti
+perché l'agente lavora in più passi.
 
 **Devo modificare il mio client OpenAI?** No: cambiare `base_url`
 (`http://127.0.0.1:8787/v1`), `api_key` (la `AGENT_BRIDGE_API_KEY`, o un valore

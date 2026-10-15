@@ -23,10 +23,11 @@ import (
 	"github.com/r3n3r0/agent-bridge/internal/session"
 	"github.com/r3n3r0/agent-bridge/internal/stats"
 	"github.com/r3n3r0/agent-bridge/internal/testutil"
+	"github.com/r3n3r0/agent-bridge/internal/tools"
 	"github.com/r3n3r0/agent-bridge/internal/turn"
 )
 
-var fakeBin string
+var fakeBin, bridgeBin string
 
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "server-test-")
@@ -35,6 +36,11 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	fakeBin, err = testutil.BuildFakeCLI(dir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	bridgeBin, err = testutil.BuildBridge(dir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -84,6 +90,7 @@ type harnessOpts struct {
 	authMode   config.AuthMode         // default subscription
 	sessions   *session.Options        // registry options
 	extra      func(dir string) string // returns extra agents JSON (without braces), given the temp dir
+	toolWait   time.Duration           // client function wait timeout
 }
 
 func newHarness(t *testing.T, o harnessOpts) *harness {
@@ -160,19 +167,28 @@ func newHarness(t *testing.T, o harnessOpts) *harness {
 	hardCtx, hardCancel := context.WithCancel(context.Background())
 	t.Cleanup(hardCancel)
 
+	broker, err := tools.NewHTTPBroker()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { broker.Close() })
 	turns := turn.NewService(turn.Deps{
 		Store:    store,
 		Locker:   session.NewKeyLocker(),
 		Executor: runner.CLIExecutor{},
 		Limiter:  limiter,
 		Recorder: st,
+		Broker:   broker,
 		Logger:   log,
 	}, turn.Settings{
-		Binary:   cfg.Binary,
-		AuthMode: cfg.AuthMode,
-		OnBusy:   cfg.Sessions.OnBusy,
-		BaseEnv:  env,
-		HardStop: hardCtx,
+		Binary:          cfg.Binary,
+		AuthMode:        cfg.AuthMode,
+		OnBusy:          cfg.Sessions.OnBusy,
+		BaseEnv:         env,
+		HardStop:        hardCtx,
+		ToolHelper:      []string{bridgeBin, "mcp-tools"},
+		ToolWaitTimeout: o.toolWait,
+		ToolBatchWindow: 100 * time.Millisecond,
 	})
 	srv := New(Options{
 		Config:            cfg,

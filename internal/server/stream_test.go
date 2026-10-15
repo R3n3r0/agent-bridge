@@ -90,7 +90,7 @@ func TestStreamSequence(t *testing.T) {
 		t.Fatalf("content chunk %+v", content)
 	}
 	fin := chunkOf(t, evs[3])
-	if fin.Choices[0].FinishReason == nil || *fin.Choices[0].FinishReason != "stop" || fin.Choices[0].Delta != (delta{}) {
+	if fin.Choices[0].FinishReason == nil || *fin.Choices[0].FinishReason != "stop" || fin.Choices[0].Delta.Content != "" || fin.Choices[0].Delta.Role != "" || len(fin.Choices[0].Delta.ToolCalls) != 0 {
 		t.Fatalf("finish chunk %+v", fin)
 	}
 	u := chunkOf(t, evs[4])
@@ -103,7 +103,7 @@ func TestStreamSequence(t *testing.T) {
 
 	// Same final content as non-stream.
 	c := decode[chatCompletion](t, h.post(userMsg("coder", "q"), nil))
-	if c.Choices[0].Message.Content != content.Choices[0].Delta.Content {
+	if c.Choices[0].Message.text() != content.Choices[0].Delta.Content {
 		t.Fatal("stream and non-stream content differ")
 	}
 }

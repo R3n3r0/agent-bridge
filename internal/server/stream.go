@@ -151,8 +151,23 @@ func (s *Server) streamTurn(ctx context.Context, w http.ResponseWriter, call *ch
 				sse.done()
 				return
 			}
-			sse.chunk(delta{Content: r.res.Content}, nil)
 			finish := r.res.FinishReason
+			if r.res.Content != "" || len(r.res.ToolCalls) == 0 {
+				sse.chunk(delta{Content: r.res.Content}, nil)
+			}
+			switch {
+			case len(r.res.ToolCalls) > 0 && call.legacy:
+				c := r.res.ToolCalls[0]
+				sse.chunk(delta{FunctionCall: &functionCall{Name: c.Name, Arguments: c.Arguments}}, nil)
+				finish = "function_call"
+			case len(r.res.ToolCalls) > 0:
+				for i, c := range r.res.ToolCalls {
+					sse.chunk(delta{ToolCalls: []streamToolCall{{
+						Index: i, ID: c.ID, Type: "function",
+						Function: functionCall{Name: c.Name, Arguments: c.Arguments},
+					}}}, nil)
+				}
+			}
 			sse.chunk(delta{}, &finish)
 			if call.includeUsage {
 				u := usageOf(r.res)

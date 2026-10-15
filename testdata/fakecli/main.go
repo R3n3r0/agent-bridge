@@ -11,6 +11,15 @@
 //	FAKE_CHILD_PID   file receiving the pid of the spawn_child child process
 //	FAKE_RESULT      result text (default "Fake answer.")
 //	FAKE_KEY_SOURCE  apiKeySource reported in the init event (default "none")
+//	FAKE_TOOL_CALLS  for the tools scenario: JSON array of {"name","arguments"}
+//	                 (default: the first listed function with {"city":"Rome"})
+//	FAKE_TOOL_PARALLEL=1  send the calls concurrently instead of one by one
+//	FAKE_QUIET=1     no assistant text before the calls
+//
+// The tools scenario acts like the CLI with client functions: it starts the
+// MCP server named in the last --mcp-config, lists its tools and calls
+// them, then answers with the results. Without --mcp-config it answers
+// with the prompt it received.
 package main
 
 import (
@@ -114,6 +123,22 @@ func main() {
 	case "new_session_id":
 		emit(initEv)
 		emit(resultEvent(newID(), "success", false, result))
+	case "tools":
+		emit(initEv)
+		cfg := lastFlagValue(args, "--mcp-config")
+		if cfg == "" {
+			emit(resultEvent(sessionID, "success", false, "no functions; prompt: "+string(stdin)))
+			return
+		}
+		if os.Getenv("FAKE_QUIET") != "1" {
+			emitAssistant(sessionID, "Calling functions.", false)
+		}
+		out, err := runMCP(cfg)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "mcp:", err)
+			os.Exit(1)
+		}
+		emit(resultEvent(sessionID, "success", false, "results: "+strings.Join(out, "|")))
 	case "garbage":
 		fmt.Println("this is not json")
 		emit(map[string]any{"type": "future_event", "payload": 1})
@@ -207,4 +232,144 @@ func writeRecord(phase string, args []string, stdin string) {
 	}
 	defer f.Close()
 	f.Write(append(b, '\n'))
+}
+
+func lastFlagValue(args []string, name string) string {
+	v := ""
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == name {
+			v = args[i+1]
+		}
+	}
+	return v
+}
+
+type rpcResp struct {
+	ID     int             `json:"id"`
+	Result json.RawMessage `json:"result"`
+	Error  *struct {
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+// runMCP starts the "functions" MCP server of cfgPath and performs the
+// calls; it returns the text of each result, in call order.
+func runMCP(cfgPath string) ([]string, error) {
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return nil, err
+	}
+	var cfg struct {
+		MCPServers map[string]struct {
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+	srv, ok := cfg.MCPServers["functions"]
+	if !ok {
+		return nil, fmt.Errorf("no functions server in %s", cfgPath)
+	}
+	cmd := exec.Command(srv.Command, srv.Args...)
+	cmd.Stderr = os.Stderr
+	in, _ := cmd.StdinPipe()
+	outPipe, _ := cmd.StdoutPipe()
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	defer func() {
+		in.Close()
+		_ = cmd.Wait()
+	}()
+	dec := json.NewDecoder(outPipe)
+	send := func(v any) {
+		b, _ := json.Marshal(v)
+		in.Write(append(b, '\n'))
+	}
+	read := func() (rpcResp, error) {
+		var r rpcResp
+		err := dec.Decode(&r)
+		return r, err
+	}
+
+	send(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": "2025-06-18"}})
+	if _, err := read(); err != nil {
+		return nil, err
+	}
+	send(map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"})
+	send(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+	listed, err := read()
+	if err != nil {
+		return nil, err
+	}
+	var list struct {
+		Tools []struct {
+			Name string `json:"name"`
+		} `json:"tools"`
+	}
+	_ = json.Unmarshal(listed.Result, &list)
+	if len(list.Tools) == 0 {
+		return nil, fmt.Errorf("no tools listed")
+	}
+
+	type call struct {
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	calls := []call{{Name: list.Tools[0].Name, Arguments: json.RawMessage(`{"city":"Rome"}`)}}
+	if v := os.Getenv("FAKE_TOOL_CALLS"); v != "" {
+		if err := json.Unmarshal([]byte(v), &calls); err != nil {
+			return nil, err
+		}
+	}
+	results := make([]string, len(calls))
+	collect := func() error {
+		r, err := read()
+		if err != nil {
+			return err
+		}
+		if r.Error != nil {
+			return fmt.Errorf("call failed: %s", r.Error.Message)
+		}
+		var res struct {
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+			IsError bool `json:"isError"`
+		}
+		_ = json.Unmarshal(r.Result, &res)
+		text := ""
+		if len(res.Content) > 0 {
+			text = res.Content[0].Text
+		}
+		if res.IsError {
+			text = "error(" + text + ")"
+		}
+		results[r.ID-10] = text
+		return nil
+	}
+	params := func(i int) map[string]any {
+		return map[string]any{"jsonrpc": "2.0", "id": 10 + i, "method": "tools/call",
+			"params": map[string]any{"name": calls[i].Name, "arguments": calls[i].Arguments}}
+	}
+	if os.Getenv("FAKE_TOOL_PARALLEL") == "1" {
+		for i := range calls {
+			send(params(i))
+		}
+		for range calls {
+			if err := collect(); err != nil {
+				return nil, err
+			}
+		}
+		return results, nil
+	}
+	for i := range calls {
+		send(params(i))
+		if err := collect(); err != nil {
+			return nil, err
+		}
+	}
+	return results, nil
 }

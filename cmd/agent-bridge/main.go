@@ -42,6 +42,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return checkConfig(args, stdout, stderr)
 	case "doctor":
 		return doctor(args, stdout, stderr)
+	case "mcp-tools":
+		return mcpTools(args, os.Stdin, stdout, stderr)
 	case "version":
 		fmt.Fprintln(stdout, version.String())
 		return 0

@@ -6,6 +6,7 @@ package runner
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/r3n3r0/agent-bridge/internal/config"
 )
@@ -29,7 +30,15 @@ type Spec struct {
 	AddDirs          []string
 	MCPConfig        string
 	ResumeID         string
+	// ClientTools, when set, is the MCP configuration exposing the API
+	// client's functions under ClientToolsServer. They are available even
+	// to chat-only agents, since they run on the client, not on the server.
+	ClientTools string
 }
+
+// ClientToolsServer is the MCP server name used for client functions; the
+// CLI names the tools "mcp__<server>__<function>".
+const ClientToolsServer = "functions"
 
 // SpecFromAgent copies the agent settings into a Spec.
 func SpecFromAgent(a *config.Agent) Spec {
@@ -61,12 +70,19 @@ func Args(s Spec) []string {
 			args = append(args, "--append-system-prompt", s.SystemPrompt)
 		}
 	}
-	if !s.ToolsEnabled {
+	var allowed []string
+	if s.ToolsEnabled {
+		allowed = append(allowed, s.AllowedTools...)
+	} else {
 		// Chat-only: disable every built-in tool and skip anything that
 		// could add tools or file access back.
 		args = append(args, "--tools", "")
-	} else if len(s.AllowedTools) > 0 {
-		args = append(args, "--allowedTools", strings.Join(s.AllowedTools, ","))
+	}
+	if s.ClientTools != "" {
+		allowed = append(allowed, "mcp__"+ClientToolsServer)
+	}
+	if len(allowed) > 0 {
+		args = append(args, "--allowedTools", strings.Join(allowed, ","))
 	}
 	if len(s.DisallowedTools) > 0 {
 		args = append(args, "--disallowedTools", strings.Join(s.DisallowedTools, ","))
@@ -84,6 +100,9 @@ func Args(s Spec) []string {
 		if s.MCPConfig != "" {
 			args = append(args, "--mcp-config", s.MCPConfig)
 		}
+	}
+	if s.ClientTools != "" {
+		args = append(args, "--mcp-config", s.ClientTools)
 	}
 	if s.ResumeID != "" {
 		args = append(args, "--resume", s.ResumeID)
@@ -106,4 +125,20 @@ func Env(base []string, mode config.AuthMode) []string {
 		out = append(out, kv)
 	}
 	return out
+}
+
+// WithClientToolsTimeout sets the CLI's MCP tool timeout to d unless the
+// environment already sets it, so a call can wait for the client as long as
+// the turn may last.
+func WithClientToolsTimeout(env []string, d time.Duration) []string {
+	const key = "MCP_TOOL_TIMEOUT"
+	for _, kv := range env {
+		if strings.HasPrefix(kv, key+"=") {
+			return env
+		}
+	}
+	if d <= 0 {
+		d = 24 * time.Hour
+	}
+	return append(env, key+"="+strconv.FormatInt(d.Milliseconds(), 10))
 }

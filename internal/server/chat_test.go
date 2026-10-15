@@ -29,7 +29,7 @@ func TestChatNonStream(t *testing.T) {
 		c.Model != "coder" || c.Created == 0 {
 		t.Fatalf("completion %+v", c)
 	}
-	if len(c.Choices) != 1 || c.Choices[0].Message.Content != "Fake answer." || c.Choices[0].Message.Role != "assistant" ||
+	if len(c.Choices) != 1 || c.Choices[0].Message.text() != "Fake answer." || c.Choices[0].Message.Role != "assistant" ||
 		c.Choices[0].FinishReason != "stop" {
 		t.Fatalf("choices %+v", c.Choices)
 	}
@@ -145,7 +145,7 @@ func TestRequestValidation(t *testing.T) {
 func TestIgnoredOpenAIFields(t *testing.T) {
 	h := newHarness(t, harnessOpts{})
 	body := map[string]any{
-		"model": "chat", "temperature": 0.2, "top_p": 1, "n": 1, "tools": []any{map[string]any{"type": "function"}},
+		"model": "chat", "temperature": 0.2, "top_p": 1, "n": 1, "tools": []any{map[string]any{"type": "function", "function": map[string]any{"name": "noop"}}},
 		"tool_choice": "auto", "response_format": map[string]any{"type": "json_object"}, "max_tokens": 10,
 		"max_completion_tokens": 10, "logprobs": true,
 		"messages": []map[string]any{{"role": "user", "content": []map[string]any{{"type": "text", "text": "hi"}}}},
@@ -181,7 +181,7 @@ func TestOutcomes(t *testing.T) {
 
 	h := newHarness(t, harnessOpts{env: []string{"FAKE_SCENARIO=max_turns"}})
 	c := decode[chatCompletion](t, h.post(userMsg("coder", "x"), nil))
-	if c.Choices[0].FinishReason != "length" || c.Choices[0].Message.Content != "Partial answer." {
+	if c.Choices[0].FinishReason != "length" || c.Choices[0].Message.text() != "Partial answer." {
 		t.Fatalf("max_turns: %+v", c.Choices)
 	}
 }
@@ -493,8 +493,8 @@ func TestSubscriptionWithAPIKeySourceLogsError(t *testing.T) {
 func TestGarbageOutputTolerated(t *testing.T) {
 	h := newHarness(t, harnessOpts{env: []string{"FAKE_SCENARIO=garbage"}})
 	c := decode[chatCompletion](t, h.post(userMsg("coder", "q"), nil))
-	if c.Choices[0].Message.Content != "Fake answer." {
-		t.Fatalf("content %q", c.Choices[0].Message.Content)
+	if c.Choices[0].Message.text() != "Fake answer." {
+		t.Fatalf("content %q", c.Choices[0].Message.text())
 	}
 }
 

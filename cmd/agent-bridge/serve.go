@@ -18,6 +18,7 @@ import (
 	"github.com/r3n3r0/agent-bridge/internal/server"
 	"github.com/r3n3r0/agent-bridge/internal/session"
 	"github.com/r3n3r0/agent-bridge/internal/stats"
+	"github.com/r3n3r0/agent-bridge/internal/tools"
 	"github.com/r3n3r0/agent-bridge/internal/turn"
 	"github.com/r3n3r0/agent-bridge/internal/version"
 )
@@ -84,6 +85,23 @@ func serve(args []string, stderr io.Writer) int {
 	}
 	defer sink.Close()
 
+	var broker tools.Broker
+	var helper []string
+	if cfg.ClientTools.Enabled {
+		exe, err := os.Executable()
+		if err != nil {
+			log.Error("cannot locate the bridge executable for client functions", "error", err)
+			return 1
+		}
+		b, err := tools.NewHTTPBroker()
+		if err != nil {
+			log.Error("cannot start the client functions broker", "error", err)
+			return 1
+		}
+		defer b.Close()
+		broker, helper = b, []string{exe, "mcp-tools"}
+	}
+
 	// Wiring: every component below is used through its interface.
 	limiter := runner.NewFIFOLimiter(cfg.MaxConcurrent, cfg.MaxQueue, time.Duration(cfg.QueueTimeoutSeconds)*time.Second)
 	collector := stats.NewCollector(string(cfg.AuthMode), limiter, sink)
@@ -95,13 +113,17 @@ func serve(args []string, stderr io.Writer) int {
 		Executor: runner.CLIExecutor{},
 		Limiter:  limiter,
 		Recorder: collector,
+		Broker:   broker,
 		Logger:   log,
 	}, turn.Settings{
-		Binary:   cfg.Binary,
-		AuthMode: cfg.AuthMode,
-		OnBusy:   cfg.Sessions.OnBusy,
-		BaseEnv:  os.Environ(),
-		HardStop: hardStop,
+		Binary:          cfg.Binary,
+		AuthMode:        cfg.AuthMode,
+		OnBusy:          cfg.Sessions.OnBusy,
+		BaseEnv:         os.Environ(),
+		HardStop:        hardStop,
+		ToolHelper:      helper,
+		ToolWaitTimeout: time.Duration(cfg.ClientTools.WaitTimeoutSeconds) * time.Second,
+		ToolBatchWindow: time.Duration(cfg.ClientTools.BatchWindowMs) * time.Millisecond,
 	})
 	srv := server.New(server.Options{
 		Config: cfg,

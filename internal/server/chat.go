@@ -22,6 +22,7 @@ type chatCall struct {
 	model        string
 	stream       bool
 	includeUsage bool
+	legacy       bool // deprecated functions API: answer with function_call
 }
 
 func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
@@ -48,17 +49,14 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setTurnHeaders(w.Header(), res)
+	msg, finish := responseMessage(res, call.legacy)
 	writeJSON(w, http.StatusOK, chatCompletion{
 		ID:      completionID(),
 		Object:  "chat.completion",
 		Created: time.Now().Unix(),
 		Model:   call.model,
-		Choices: []choice{{
-			Index:        0,
-			Message:      chatMessage{Role: prompt.RoleAssistant, Content: res.Content},
-			FinishReason: res.FinishReason,
-		}},
-		Usage: usageOf(res),
+		Choices: []choice{{Index: 0, Message: msg, FinishReason: finish}},
+		Usage:   usageOf(res),
 	})
 }
 
@@ -124,7 +122,7 @@ func (s *Server) parseChat(w http.ResponseWriter, r *http.Request) (*chatCall, *
 		}
 		return nil, newError(http.StatusBadRequest, errInvalidRequest, err.Error())
 	}
-	if len(prompt.CurrentRequest(msgs)) == 0 {
+	if len(prompt.Current(msgs)) == 0 {
 		return nil, newError(http.StatusBadRequest, errInvalidRequest, prompt.ErrNoCurrentRequest.Error())
 	}
 	agent, ok := s.cfg.Agents[req.Model]
@@ -132,6 +130,10 @@ func (s *Server) parseChat(w http.ResponseWriter, r *http.Request) (*chatCall, *
 		return nil, newError(http.StatusNotFound, errModelNotFound, "model "+req.Model+" does not exist")
 	}
 	spec, cwd, apiErr := applyOverrides(s.cfg.Overrides, r.Header, agent)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	fns, apiErr := parseFunctions(&req)
 	if apiErr != nil {
 		return nil, apiErr
 	}
@@ -151,14 +153,19 @@ func (s *Server) parseChat(w http.ResponseWriter, r *http.Request) (*chatCall, *
 	call := &chatCall{
 		model:  req.Model,
 		stream: req.Stream,
+		legacy: fns.legacy,
 		turn: &turn.Request{
-			RequestID:  requestIDFrom(r.Context()),
-			Agent:      agent,
-			Spec:       spec,
-			Cwd:        cwd,
-			Messages:   msgs,
-			SessionKey: key,
-			Reset:      reset,
+			RequestID:         requestIDFrom(r.Context()),
+			Agent:             agent,
+			Spec:              spec,
+			Cwd:               cwd,
+			Messages:          msgs,
+			SessionKey:        key,
+			Reset:             reset,
+			Tools:             fns.defs,
+			ToolChoice:        fns.choice,
+			ParallelToolCalls: fns.parallel,
+			LegacyFunctions:   fns.legacy,
 		},
 	}
 	if req.StreamOptions != nil {

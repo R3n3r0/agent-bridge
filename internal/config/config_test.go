@@ -45,6 +45,9 @@ func TestDefaults(t *testing.T) {
 		cfg.Sessions.OnBusy != OnBusyWait || cfg.AllowRemote || cfg.Metrics || cfg.AllowBypassPermissions {
 		t.Fatalf("unexpected defaults: %+v", cfg)
 	}
+	if !cfg.ClientTools.Enabled || cfg.ClientTools.WaitTimeoutSeconds != 600 || cfg.ClientTools.BatchWindowMs != 300 {
+		t.Fatalf("client_tools defaults: %+v", cfg.ClientTools)
+	}
 	if cfg.LogFormat != "text" || cfg.LogLevel != "info" {
 		t.Fatalf("log defaults: %s %s", cfg.LogFormat, cfg.LogLevel)
 	}
@@ -155,6 +158,7 @@ func TestValidationErrors(t *testing.T) {
 		{"negative turns", `{"agents":{"a":{"tools_enabled":false,"max_turns":-1}}}`, "max_turns"},
 		{"negative timeout", `{"agents":{"a":{"tools_enabled":false,"timeout_seconds":-1}}}`, "timeout_seconds"},
 		{"negative queue", `{"max_queue":-1}`, "max_queue"},
+		{"negative tool wait", `{"client_tools":{"wait_timeout_seconds":-1}}`, "client_tools.wait_timeout_seconds"},
 		{"zero concurrency", `{"max_concurrent":0}`, "max_concurrent"},
 		{"stream progress", `{"stream_progress":"all"}`, "stream_progress"},
 		{"session store", `{"sessions":{"store":"redis"}}`, "sessions.store"},

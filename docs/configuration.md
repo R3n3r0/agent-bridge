@@ -60,6 +60,7 @@ figlio; in modalità `subscription` anche `ANTHROPIC_API_KEY` e
 | `defaults.max_turns` | `0` | Turni massimi di default (0 = illimitato) |
 | `sessions` | | Vedi sotto |
 | `overrides` | | Vedi sotto |
+| `client_tools` | | Vedi sotto |
 | `agents` | `{}` | Agenti, per nome |
 
 Chiavi sconosciute nel file sono un errore, per intercettare refusi.
@@ -143,6 +144,29 @@ prima del turno.
 
 Gli override non sono mai applicabili ai modelli built-in. Un override non
 abilitato o fuori dai limiti produce 403 `override_not_allowed`.
+
+## `client_tools`
+
+Funzioni definite dai client con `tools` (function calling OpenAI), eseguite
+dai client.
+
+| Campo | Default | Significato |
+| --- | --- | --- |
+| `enabled` | `true` | Con `false` i campi `tools`/`functions` vengono ignorati |
+| `wait_timeout_seconds` | `600` | Attesa massima dei risultati; poi il processo viene fermato e una richiesta successiva riparte dalla cronologia |
+| `batch_window_ms` | `300` | Tempo per raccogliere chiamate parallele da restituire insieme |
+
+Le funzioni sono esposte alla CLI come server MCP `functions` (tool
+`mcp__functions__<nome>`), avviato con `agent-bridge mcp-tools`. Le chiamate
+passano da un broker interno in ascolto su `127.0.0.1` con porta casuale e un
+token diverso per ogni turno; i file di configurazione del turno sono privati
+(permessi `0600`) e rimossi alla fine. La variabile `MCP_TOOL_TIMEOUT` del
+processo figlio viene impostata al timeout dell'agente, se non già presente.
+
+Validazione (400 `invalid_request_error`, come l'API OpenAI): tool di tipo
+diverso da `function`, nomi fuori da `[a-zA-Z0-9_-]{1,64}` o duplicati,
+`parameters` non oggetto, `tool_choice` senza `tools` o che nomina una funzione
+inesistente.
 
 ## Errori HTTP
 

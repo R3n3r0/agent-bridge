@@ -11,3 +11,9 @@ Prima implementazione completa delle specifiche v1.0:
 - Modalità `subscription` e `api`, bind loopback di default, chiave Bearer, CORS, override per richiesta.
 - Redazione dei segreti, request ID, log strutturati, file di utilizzo, `/stats`, `/metrics`, `/healthz`, `/readyz`.
 - Comandi `serve`, `check-config`, `doctor`, `version`.
+- Function calling compatibile OpenAI: `tools`, `tool_choice`, `parallel_tool_calls`, `tool_calls` in risposta
+  (JSON e streaming), messaggi `tool` in ingresso, formato deprecato `functions`/`function_call`. Le funzioni
+  sono offerte alla CLI tramite un server MCP interno (`agent-bridge mcp-tools`) e il processo resta in attesa
+  dei risultati del client tra una richiesta e l'altra.
+- Struttura a livelli con interfacce (`turn.Service`, `session.Store`/`Locker`, `runner.Executor`/`Limiter`,
+  `stats.Recorder`/`Reporter`/`UsageSink`, `tools.Broker`).

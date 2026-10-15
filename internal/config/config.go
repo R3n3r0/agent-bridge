@@ -43,32 +43,34 @@ const (
 
 // Defaults for top-level settings.
 const (
-	DefaultListen         = "127.0.0.1:8787"
-	DefaultBinary         = "claude"
-	DefaultMaxConcurrent  = 2
-	DefaultMaxQueue       = 32
-	DefaultQueueTimeout   = 300
-	DefaultShutdownGrace  = 30
-	DefaultTimeout        = 1800
-	DefaultModel          = "sonnet"
-	DefaultTTLHours       = 168
-	DefaultMaxEntries     = 10000
-	DefaultSessionsFile   = "sessions.json"
-	StreamComments        = "comments"
-	StreamContent         = "content"
-	StreamNone            = "none"
-	PromptModeAppend      = "append"
-	PromptModeReplace     = "replace"
-	SessionStoreMemory    = "memory"
-	SessionStoreFile      = "file"
-	OnBusyWait            = "wait"
-	OnBusyReject          = "reject"
-	PermissionBypass      = "bypassPermissions"
-	builtinPrefix         = "claude-code/"
-	maxAgentNameLength    = 64
-	defaultLogFormat      = "text"
-	defaultLogLevel       = "info"
-	defaultPermissionMode = "default"
+	DefaultListen            = "127.0.0.1:8787"
+	DefaultBinary            = "claude"
+	DefaultMaxConcurrent     = 2
+	DefaultMaxQueue          = 32
+	DefaultQueueTimeout      = 300
+	DefaultShutdownGrace     = 30
+	DefaultTimeout           = 1800
+	DefaultModel             = "sonnet"
+	DefaultTTLHours          = 168
+	DefaultMaxEntries        = 10000
+	DefaultSessionsFile      = "sessions.json"
+	DefaultToolWaitTimeout   = 600
+	DefaultToolBatchWindowMs = 300
+	StreamComments           = "comments"
+	StreamContent            = "content"
+	StreamNone               = "none"
+	PromptModeAppend         = "append"
+	PromptModeReplace        = "replace"
+	SessionStoreMemory       = "memory"
+	SessionStoreFile         = "file"
+	OnBusyWait               = "wait"
+	OnBusyReject             = "reject"
+	PermissionBypass         = "bypassPermissions"
+	builtinPrefix            = "claude-code/"
+	maxAgentNameLength       = 64
+	defaultLogFormat         = "text"
+	defaultLogLevel          = "info"
+	defaultPermissionMode    = "default"
 )
 
 // PermissionModes lists the accepted values for permission_mode.
@@ -96,6 +98,14 @@ type SessionsSection struct {
 	TTLHours   int    `json:"ttl_hours"`
 	MaxEntries int    `json:"max_entries"`
 	OnBusy     string `json:"on_busy"`
+}
+
+// ClientToolsSection is the "client_tools" object of the file: functions
+// defined by API clients (OpenAI tools) and executed by the clients.
+type ClientToolsSection struct {
+	Enabled            bool `json:"enabled"`
+	WaitTimeoutSeconds int  `json:"wait_timeout_seconds"`
+	BatchWindowMs      int  `json:"batch_window_ms"`
 }
 
 // OverridesSection is the "overrides" object of the file.
@@ -160,6 +170,7 @@ type Config struct {
 	Defaults               DefaultsSection      `json:"defaults"`
 	Sessions               SessionsSection      `json:"sessions"`
 	Overrides              OverridesSection     `json:"overrides"`
+	ClientTools            ClientToolsSection   `json:"client_tools"`
 	AgentsFile             map[string]AgentFile `json:"agents"`
 
 	// Values that come only from flags or the environment.
@@ -223,6 +234,11 @@ func defaults() *Config {
 			TTLHours:   DefaultTTLHours,
 			MaxEntries: DefaultMaxEntries,
 			OnBusy:     OnBusyWait,
+		},
+		ClientTools: ClientToolsSection{
+			Enabled:            true,
+			WaitTimeoutSeconds: DefaultToolWaitTimeout,
+			BatchWindowMs:      DefaultToolBatchWindowMs,
 		},
 		LogFormat: defaultLogFormat,
 		LogLevel:  defaultLogLevel,
@@ -330,13 +346,15 @@ func (c *Config) resolve() error {
 		add("max_concurrent: must be at least 1, got %d", c.MaxConcurrent)
 	}
 	for name, v := range map[string]int{
-		"max_queue":                c.MaxQueue,
-		"queue_timeout_seconds":    c.QueueTimeoutSeconds,
-		"shutdown_grace_seconds":   c.ShutdownGraceSeconds,
-		"defaults.timeout_seconds": c.Defaults.TimeoutSeconds,
-		"defaults.max_turns":       c.Defaults.MaxTurns,
-		"sessions.ttl_hours":       c.Sessions.TTLHours,
-		"sessions.max_entries":     c.Sessions.MaxEntries,
+		"max_queue":                         c.MaxQueue,
+		"queue_timeout_seconds":             c.QueueTimeoutSeconds,
+		"shutdown_grace_seconds":            c.ShutdownGraceSeconds,
+		"defaults.timeout_seconds":          c.Defaults.TimeoutSeconds,
+		"defaults.max_turns":                c.Defaults.MaxTurns,
+		"sessions.ttl_hours":                c.Sessions.TTLHours,
+		"sessions.max_entries":              c.Sessions.MaxEntries,
+		"client_tools.wait_timeout_seconds": c.ClientTools.WaitTimeoutSeconds,
+		"client_tools.batch_window_ms":      c.ClientTools.BatchWindowMs,
 	} {
 		if v < 0 {
 			add("%s: must not be negative, got %d", name, v)

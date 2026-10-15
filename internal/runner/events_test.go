@@ -14,6 +14,11 @@ func TestParseLine(t *testing.T) {
 		t.Fatalf("assistant: %+v", ev)
 	}
 
+	ev = ParseLine([]byte(`{"type":"assistant","message":{"usage":{"input_tokens":7,"output_tokens":1},"content":[{"type":"text","text":"x"}]}}`))
+	if len(ev) != 2 || ev[1].Kind != KindUsage || ev[1].Usage.InputTokens != 7 || ev[1].Usage.OutputTokens != 1 {
+		t.Fatalf("usage: %+v", ev)
+	}
+
 	ev = ParseLine([]byte(`{"type":"result","subtype":"success","is_error":false,"result":"done","session_id":"s2",
 		"total_cost_usd":0.5,"num_turns":3,"duration_ms":1200,
 		"usage":{"input_tokens":1,"output_tokens":2,"cache_read_input_tokens":3,"cache_creation_input_tokens":4}}`))

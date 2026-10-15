@@ -9,6 +9,7 @@ const (
 	KindInit      = "init"
 	KindText      = "text"
 	KindToolUse   = "tool_use"
+	KindUsage     = "usage"
 	KindResult    = "result"
 	KindIgnored   = "ignored"
 	KindMalformed = "malformed"
@@ -51,6 +52,9 @@ type Event struct {
 	Text         string
 	ToolName     string
 	Result       *ResultEvent
+	// Usage is set on KindUsage events: the token usage of one assistant
+	// message.
+	Usage *Usage
 }
 
 type rawEvent struct {
@@ -60,6 +64,7 @@ type rawEvent struct {
 	Model        string `json:"model"`
 	APIKeySource string `json:"apiKeySource"`
 	Message      *struct {
+		Usage   *Usage `json:"usage"`
 		Content []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
@@ -95,6 +100,9 @@ func ParseLine(line []byte) []Event {
 			case "tool_use":
 				out = append(out, Event{Kind: KindToolUse, Type: raw.Type, SessionID: raw.SessionID, ToolName: c.Name})
 			}
+		}
+		if raw.Message.Usage != nil {
+			out = append(out, Event{Kind: KindUsage, Type: raw.Type, SessionID: raw.SessionID, Usage: raw.Message.Usage})
 		}
 		if len(out) > 0 {
 			return out

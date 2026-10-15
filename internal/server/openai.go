@@ -12,7 +12,7 @@ import (
 )
 
 // chatRequest holds the request fields the bridge uses. Every other field
-// (tools, temperature, response_format, ...) is accepted and ignored.
+// (temperature, response_format, ...) is accepted and ignored.
 type chatRequest struct {
 	Model         string              `json:"model"`
 	Messages      []prompt.RawMessage `json:"messages"`
@@ -21,6 +21,45 @@ type chatRequest struct {
 		IncludeUsage bool `json:"include_usage"`
 	} `json:"stream_options"`
 	User string `json:"user"`
+
+	Tools             []toolDef       `json:"tools"`
+	ToolChoice        json.RawMessage `json:"tool_choice"`
+	ParallelToolCalls *bool           `json:"parallel_tool_calls"`
+	// Deprecated OpenAI function calling.
+	Functions    []functionDef   `json:"functions"`
+	FunctionCall json.RawMessage `json:"function_call"`
+}
+
+type functionDef struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters"`
+}
+
+type toolDef struct {
+	Type     string      `json:"type"`
+	Function functionDef `json:"function"`
+}
+
+// functionCall is the function part of a tool call (and the deprecated
+// message.function_call).
+type functionCall struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+type toolCall struct {
+	ID       string       `json:"id"`
+	Type     string       `json:"type"`
+	Function functionCall `json:"function"`
+}
+
+// streamToolCall is a tool call in a stream delta; index is always present.
+type streamToolCall struct {
+	Index    int          `json:"index"`
+	ID       string       `json:"id"`
+	Type     string       `json:"type"`
+	Function functionCall `json:"function"`
 }
 
 type usage struct {
@@ -30,8 +69,17 @@ type usage struct {
 }
 
 type chatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role         string        `json:"role"`
+	Content      *string       `json:"content"` // null when only tool calls are returned
+	ToolCalls    []toolCall    `json:"tool_calls,omitempty"`
+	FunctionCall *functionCall `json:"function_call,omitempty"`
+}
+
+func (m chatMessage) text() string {
+	if m.Content == nil {
+		return ""
+	}
+	return *m.Content
 }
 
 type choice struct {
@@ -50,8 +98,10 @@ type chatCompletion struct {
 }
 
 type delta struct {
-	Role    string `json:"role,omitempty"`
-	Content string `json:"content,omitempty"`
+	Role         string           `json:"role,omitempty"`
+	Content      string           `json:"content,omitempty"`
+	ToolCalls    []streamToolCall `json:"tool_calls,omitempty"`
+	FunctionCall *functionCall    `json:"function_call,omitempty"`
 }
 
 type chunkChoice struct {

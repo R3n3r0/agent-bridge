@@ -19,30 +19,60 @@ var (
 	ErrUnsupportedContent = errors.New("only text content parts are supported")
 	ErrNoMessages         = errors.New("messages must not be empty")
 	ErrNoUserMessage      = errors.New("messages must contain at least one user message")
-	ErrNoCurrentRequest   = errors.New("the last message must be followed by at least one user message after the last assistant message")
+	ErrNoCurrentRequest   = errors.New("the last assistant message must be followed by at least one user or tool message")
 	ErrTooLarge           = fmt.Errorf("prompt exceeds %d bytes", MaxBytes)
 	ErrInvalidRole        = errors.New("invalid message role")
 )
 
-// Roles accepted in requests.
+// Roles accepted in requests. RoleFunction is the legacy name of RoleTool.
 const (
 	RoleSystem    = "system"
 	RoleDeveloper = "developer"
 	RoleUser      = "user"
 	RoleAssistant = "assistant"
 	RoleTool      = "tool"
+	RoleFunction  = "function"
 )
+
+// RawToolCall is an assistant tool call as received in the request body.
+type RawToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
 
 // RawMessage is a message as received in the request body.
 type RawMessage struct {
-	Role    string          `json:"role"`
-	Content json.RawMessage `json:"content"`
+	Role       string          `json:"role"`
+	Content    json.RawMessage `json:"content"`
+	Name       string          `json:"name,omitempty"`
+	ToolCalls  []RawToolCall   `json:"tool_calls,omitempty"`
+	ToolCallID string          `json:"tool_call_id,omitempty"`
+	// FunctionCall is the deprecated single function call of an assistant
+	// message.
+	FunctionCall *struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function_call,omitempty"`
+}
+
+// ToolCall is a function call made by the assistant in an earlier turn.
+type ToolCall struct {
+	ID        string
+	Name      string
+	Arguments string
 }
 
 // Message is a message with its content reduced to text.
 type Message struct {
-	Role string
-	Text string
+	Role       string
+	Text       string
+	ToolCalls  []ToolCall // assistant only
+	ToolCallID string     // tool only
+	Name       string     // tool only: function name, if known
 }
 
 type contentPart struct {
@@ -52,16 +82,20 @@ type contentPart struct {
 
 // Parse validates roles and reduces each message content to plain text.
 // Content may be a string, null, or an array of parts; only "text" parts are
-// accepted.
+// accepted. Legacy "function" messages are treated as tool messages.
 func Parse(raw []RawMessage) ([]Message, error) {
 	if len(raw) == 0 {
 		return nil, ErrNoMessages
 	}
 	out := make([]Message, 0, len(raw))
+	names := map[string]string{} // tool call id -> function name
 	hasUser := false
 	for i, m := range raw {
-		switch m.Role {
+		role := m.Role
+		switch role {
 		case RoleSystem, RoleDeveloper, RoleUser, RoleAssistant, RoleTool:
+		case RoleFunction:
+			role = RoleTool
 		default:
 			return nil, fmt.Errorf("%w %q at messages[%d]", ErrInvalidRole, m.Role, i)
 		}
@@ -69,10 +103,26 @@ func Parse(raw []RawMessage) ([]Message, error) {
 		if err != nil {
 			return nil, fmt.Errorf("messages[%d]: %w", i, err)
 		}
-		if m.Role == RoleUser {
+		msg := Message{Role: role, Text: text}
+		switch role {
+		case RoleUser:
 			hasUser = true
+		case RoleAssistant:
+			for _, tc := range m.ToolCalls {
+				msg.ToolCalls = append(msg.ToolCalls, ToolCall{ID: tc.ID, Name: tc.Function.Name, Arguments: tc.Function.Arguments})
+				names[tc.ID] = tc.Function.Name
+			}
+			if fc := m.FunctionCall; fc != nil {
+				msg.ToolCalls = append(msg.ToolCalls, ToolCall{Name: fc.Name, Arguments: fc.Arguments})
+			}
+		case RoleTool:
+			msg.ToolCallID = m.ToolCallID
+			msg.Name = m.Name
+			if msg.Name == "" {
+				msg.Name = names[m.ToolCallID]
+			}
 		}
-		out = append(out, Message{Role: m.Role, Text: text})
+		out = append(out, msg)
 	}
 	if !hasUser {
 		return nil, ErrNoUserMessage
@@ -120,12 +170,37 @@ func lastAssistant(msgs []Message) int {
 	return -1
 }
 
-// CurrentRequest returns the user messages after the last assistant message.
+// Current returns the user and tool messages after the last assistant
+// message: what the model has not seen yet.
+func Current(msgs []Message) []Message {
+	var out []Message
+	for _, m := range msgs[lastAssistant(msgs)+1:] {
+		if m.Role == RoleUser || m.Role == RoleTool {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// CurrentRequest returns the texts of the user messages after the last
+// assistant message.
 func CurrentRequest(msgs []Message) []string {
 	var out []string
-	for _, m := range msgs[lastAssistant(msgs)+1:] {
+	for _, m := range Current(msgs) {
 		if m.Role == RoleUser {
 			out = append(out, m.Text)
+		}
+	}
+	return out
+}
+
+// ToolResults returns the tool messages after the last assistant message,
+// keyed by tool call id. Messages without id are skipped.
+func ToolResults(msgs []Message) map[string]string {
+	out := map[string]string{}
+	for _, m := range Current(msgs) {
+		if m.Role == RoleTool && m.ToolCallID != "" {
+			out[m.ToolCallID] = m.Text
 		}
 	}
 	return out
@@ -143,15 +218,16 @@ func Instructions(msgs []Message) string {
 }
 
 // Build returns the prompt for a turn. With resumed set, only the new user
-// messages are sent, since the previous context is already in the session.
+// and tool messages are sent, since the previous context is already in the
+// session.
 func Build(msgs []Message, resumed bool) (string, error) {
-	current := CurrentRequest(msgs)
+	current := Current(msgs)
 	if len(current) == 0 {
 		return "", ErrNoCurrentRequest
 	}
 	var p string
 	if resumed {
-		p = strings.Join(current, "\n\n")
+		p = renderCurrent(current)
 	} else {
 		p = buildNew(msgs, current)
 	}
@@ -161,28 +237,64 @@ func Build(msgs []Message, resumed bool) (string, error) {
 	return p, nil
 }
 
-func buildNew(msgs []Message, current []string) string {
-	instructions := Instructions(msgs)
-	users := 0
-	for _, m := range msgs {
-		if m.Role == RoleUser {
-			users++
+func renderCurrent(current []Message) string {
+	parts := make([]string, len(current))
+	for i, m := range current {
+		if m.Role == RoleTool {
+			parts[i] = renderTool(m)
+		} else {
+			parts[i] = m.Text
 		}
 	}
-	if users == 1 && instructions == "" && len(msgs) == 1 {
-		return current[0]
+	return strings.Join(parts, "\n\n")
+}
+
+func renderTool(m Message) string {
+	if m.ToolCallID == "" && m.Name == "" {
+		return "<tool>" + m.Text + "</tool>"
+	}
+	return fmt.Sprintf("<tool tool_call_id=%q name=%q>%s</tool>", m.ToolCallID, m.Name, m.Text)
+}
+
+func renderAssistant(m Message) string {
+	var b strings.Builder
+	b.WriteString("<assistant>")
+	b.WriteString(m.Text)
+	for _, tc := range m.ToolCalls {
+		if b.Len() > len("<assistant>") {
+			b.WriteString("\n")
+		}
+		if tc.ID == "" {
+			fmt.Fprintf(&b, "<tool_call name=%q>%s</tool_call>", tc.Name, tc.Arguments)
+			continue
+		}
+		fmt.Fprintf(&b, "<tool_call id=%q name=%q>%s</tool_call>", tc.ID, tc.Name, tc.Arguments)
+	}
+	b.WriteString("</assistant>")
+	return b.String()
+}
+
+func buildNew(msgs []Message, current []Message) string {
+	instructions := Instructions(msgs)
+	if len(msgs) == 1 && msgs[0].Role == RoleUser {
+		return msgs[0].Text
 	}
 
 	last := lastAssistant(msgs)
 	var history strings.Builder
 	for i, m := range msgs {
-		if m.Role == RoleSystem || m.Role == RoleDeveloper {
+		if m.Role == RoleSystem || m.Role == RoleDeveloper || i > last {
 			continue
 		}
-		if i > last && m.Role == RoleUser {
-			continue
+		switch m.Role {
+		case RoleAssistant:
+			history.WriteString(renderAssistant(m))
+		case RoleTool:
+			history.WriteString(renderTool(m))
+		default:
+			fmt.Fprintf(&history, "<%s>%s</%s>", m.Role, m.Text, m.Role)
 		}
-		fmt.Fprintf(&history, "<%s>%s</%s>\n", m.Role, m.Text, m.Role)
+		history.WriteString("\n")
 	}
 
 	var sections []string
@@ -192,6 +304,6 @@ func buildNew(msgs []Message, current []string) string {
 	if history.Len() > 0 {
 		sections = append(sections, "<conversation_history>\n"+history.String()+"</conversation_history>")
 	}
-	sections = append(sections, "<current_request>\n"+strings.Join(current, "\n\n")+"\n</current_request>")
+	sections = append(sections, "<current_request>\n"+renderCurrent(current)+"\n</current_request>")
 	return strings.Join(sections, "\n\n")
 }

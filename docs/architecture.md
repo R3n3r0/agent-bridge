@@ -8,13 +8,15 @@ solo punto, `cmd/agent-bridge/serve.go`.
 HTTP (internal/server)            parsing OpenAI, SSE, auth, CORS, mappatura errori
    │  turn.Service, stats.Reporter
    ▼
-Dominio (internal/turn)           sessione, prompt, coda, esecuzione, ripresa, statistiche
-   │  session.Store, session.Locker, runner.Executor, runner.Limiter, stats.Recorder
+Dominio (internal/turn)           sessione, prompt, coda, esecuzione, ripresa, statistiche,
+   │                              turni sospesi in attesa dei risultati delle funzioni
+   │  session.Store, session.Locker, runner.Executor, runner.Limiter, stats.Recorder, tools.Broker
    ▼
 Infrastruttura                    implementazioni sostituibili
    internal/session   MemoryStore, FileStore, KeyLocker
    internal/runner    CLIExecutor (processo reale), FIFOLimiter, controllo processi per OS
    internal/stats     Collector, JSONLUsageLog, DiscardUsage
+   internal/tools     HTTPBroker, server MCP delle funzioni del client (ServeMCP)
 ```
 
 ## Interfacce
@@ -28,12 +30,34 @@ Infrastruttura                    implementazioni sostituibili
 | `Limiter` | `runner` | `FIFOLimiter` | Concorrenza massima e coda FIFO |
 | `Recorder`, `Reporter` | `stats` | `Collector` | Registrazione dei turni; esposizione di `/stats` e `/metrics` |
 | `UsageSink` | `stats` | `JSONLUsageLog`, `DiscardUsage` | Destinazione dei record di utilizzo |
+| `Broker` | `tools` | `HTTPBroker` | Instrada le chiamate alle funzioni del client verso il turno che le attende |
+| `Handler` | `tools` | il turno in esecuzione | Riceve una chiamata e la blocca fino al risultato del client |
 | `processController` (interna) | `runner` | process group su Unix, `taskkill` su Windows | Terminazione dell'albero dei processi |
 
 Le funzioni pure (costruzione del prompt in `prompt`, argomenti e ambiente in
 `runner.Args`/`runner.Env`, parsing degli eventi, validazione della
 configurazione) restano funzioni: non hanno stato né effetti collaterali da
 sostituire.
+
+## Function calling
+
+```text
+client ──tools──▶ server ──▶ turn.Service ──avvia──▶ CLI ──MCP stdio──▶ agent-bridge mcp-tools
+                                  ▲                                          │ HTTP loopback + token
+                                  └──────────── tools.HTTPBroker ◀───────────┘
+```
+
+1. Il turno registra un `Handler` sul broker e scrive la configurazione MCP
+   che avvia `agent-bridge mcp-tools` con le definizioni delle funzioni.
+2. Il modello chiama `mcp__functions__<nome>`; la chiamata arriva al broker e
+   all'handler, che la tiene in sospeso. Dopo `batch_window_ms` le chiamate
+   raccolte tornano al client con `finish_reason: "tool_calls"`.
+3. Il processo resta vivo, con lock di sessione e slot di concorrenza. I
+   `tool_call_id` restituiti indicizzano il turno sospeso.
+4. La richiesta successiva con messaggi `tool` viene agganciata al turno
+   tramite gli id; i risultati sbloccano le chiamate e il modello continua.
+5. Scaduto `wait_timeout_seconds` il processo viene fermato; i risultati che
+   arrivano dopo fanno partire un processo nuovo con la cronologia completa.
 
 ## Errori
 
