@@ -23,6 +23,7 @@ import (
 	"github.com/r3n3r0/agent-bridge/internal/session"
 	"github.com/r3n3r0/agent-bridge/internal/stats"
 	"github.com/r3n3r0/agent-bridge/internal/testutil"
+	"github.com/r3n3r0/agent-bridge/internal/turn"
 )
 
 var fakeBin string
@@ -65,9 +66,9 @@ type harness struct {
 	cfg     *config.Config
 	srv     *Server
 	ts      *httptest.Server
-	reg     *session.Registry
-	stats   *stats.Stats
-	limiter *runner.Limiter
+	reg     session.Store
+	stats   stats.Reporter
+	limiter runner.Limiter
 	logs    *syncBuffer
 	record  string
 	dir     string
@@ -133,20 +134,23 @@ func newHarness(t *testing.T, o harnessOpts) *harness {
 		o.mutate(cfg)
 	}
 
-	regOpts := session.Options{}
+	storeOpts := session.Options{}
 	if o.sessions != nil {
-		regOpts = *o.sessions
+		storeOpts = *o.sessions
 	}
-	reg, err := session.New(regOpts)
+	store, err := session.NewStore(storeOpts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	limiter := runner.NewLimiter(cfg.MaxConcurrent, cfg.MaxQueue, time.Duration(cfg.QueueTimeoutSeconds)*time.Second)
-	st, err := stats.New(string(cfg.AuthMode), limiter, cfg.UsageLog)
-	if err != nil {
-		t.Fatal(err)
+	limiter := runner.NewFIFOLimiter(cfg.MaxConcurrent, cfg.MaxQueue, time.Duration(cfg.QueueTimeoutSeconds)*time.Second)
+	var sink stats.UsageSink = stats.DiscardUsage{}
+	if cfg.UsageLog != "" {
+		if sink, err = stats.OpenJSONLUsageLog(cfg.UsageLog); err != nil {
+			t.Fatal(err)
+		}
 	}
-	t.Cleanup(func() { st.Close() })
+	t.Cleanup(func() { sink.Close() })
+	st := stats.NewCollector(string(cfg.AuthMode), limiter, sink)
 
 	record := filepath.Join(dir, "record.jsonl")
 	env := append(os.Environ(), "FAKE_RECORD="+record, "AGENT_BRIDGE_SHOULD_NOT_LEAK=1", "ANTHROPIC_API_KEY=sk-ant-should-not-leak")
@@ -156,19 +160,30 @@ func newHarness(t *testing.T, o harnessOpts) *harness {
 	hardCtx, hardCancel := context.WithCancel(context.Background())
 	t.Cleanup(hardCancel)
 
+	turns := turn.NewService(turn.Deps{
+		Store:    store,
+		Locker:   session.NewKeyLocker(),
+		Executor: runner.CLIExecutor{},
+		Limiter:  limiter,
+		Recorder: st,
+		Logger:   log,
+	}, turn.Settings{
+		Binary:   cfg.Binary,
+		AuthMode: cfg.AuthMode,
+		OnBusy:   cfg.Sessions.OnBusy,
+		BaseEnv:  env,
+		HardStop: hardCtx,
+	})
 	srv := New(Options{
 		Config:            cfg,
-		Registry:          reg,
-		Limiter:           limiter,
+		Turns:             turns,
 		Stats:             st,
 		Logger:            log,
-		BaseEnv:           env,
 		KeepaliveInterval: o.keepalive,
-		HardStop:          hardCtx,
 	})
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	return &harness{t: t, cfg: cfg, srv: srv, ts: ts, reg: reg, stats: st, limiter: limiter, logs: logs, record: record, dir: dir, hard: hardCancel}
+	return &harness{t: t, cfg: cfg, srv: srv, ts: ts, reg: store, stats: st, limiter: limiter, logs: logs, record: record, dir: dir, hard: hardCancel}
 }
 
 func (h *harness) post(body any, headers map[string]string) *http.Response {

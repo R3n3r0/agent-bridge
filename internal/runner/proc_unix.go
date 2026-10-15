@@ -9,39 +9,38 @@ import (
 	"time"
 )
 
-// procControl terminates the whole process group, so commands started by
-// the CLI's shell tool die with it.
-type procControl struct {
+// groupController runs the CLI in its own process group and signals the
+// whole group: SIGTERM first, SIGKILL after killGrace.
+type groupController struct {
 	mu    sync.Mutex
 	timer *time.Timer
 }
 
-func setupProcess(cmd *exec.Cmd) *procControl {
-	pc := &procControl{}
+func newProcessController() processController { return &groupController{} }
+
+func (g *groupController) prepare(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
 		pid := cmd.Process.Pid
 		_ = syscall.Kill(-pid, syscall.SIGTERM)
-		pc.mu.Lock()
-		pc.timer = time.AfterFunc(killGrace, func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
-		pc.mu.Unlock()
+		g.mu.Lock()
+		g.timer = time.AfterFunc(killGrace, func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
+		g.mu.Unlock()
 		return nil
 	}
-	return pc
 }
 
-// cleanup kills whatever is left in the group after a cancellation.
-func (pc *procControl) cleanup(cmd *exec.Cmd) {
-	pc.stop()
+func (g *groupController) cleanup(cmd *exec.Cmd) {
+	g.stop()
 	if cmd.Process != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 }
 
-func (pc *procControl) stop() {
-	pc.mu.Lock()
-	defer pc.mu.Unlock()
-	if pc.timer != nil {
-		pc.timer.Stop()
+func (g *groupController) stop() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.timer != nil {
+		g.timer.Stop()
 	}
 }

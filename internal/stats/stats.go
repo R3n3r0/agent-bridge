@@ -1,12 +1,14 @@
-// Package stats keeps per-agent counters, writes the optional JSONL usage
-// file and renders Prometheus metrics.
+// Package stats keeps per-agent counters, writes the optional usage log and
+// renders Prometheus metrics.
+//
+// Recorder is what turn execution needs, Reporter what the HTTP endpoints
+// need; Collector implements both. UsageSink abstracts where per-turn usage
+// records go (JSONLUsageLog or DiscardUsage).
 package stats
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -74,61 +76,65 @@ type Gauges interface {
 	Queued() int
 }
 
-// Stats is safe for concurrent use.
-type Stats struct {
+// Recorder receives the record of every finished turn.
+type Recorder interface {
+	// Record updates the counters and forwards t to the usage sink. A sink
+	// error is returned for logging; the counters are updated regardless.
+	Record(t Turn) error
+}
+
+// Reporter exposes the collected statistics.
+type Reporter interface {
+	// Snapshot returns the current counters; with reset they are zeroed
+	// after being read.
+	Snapshot(reset bool) Snapshot
+	// WriteMetrics renders the Prometheus text exposition format.
+	WriteMetrics(w io.Writer)
+}
+
+// Collector keeps statistics in memory. It is safe for concurrent use.
+type Collector struct {
 	authMode  string
 	startedAt time.Time
 	gauges    Gauges
+	sink      UsageSink
 	now       func() time.Time
 
-	mu        sync.Mutex
-	agents    map[string]*AgentStats
-	outcomes  map[[2]string]int64 // never reset: Prometheus counters
-	cost      map[string]float64
-	tokens    map[[2]string]int64
-	durSum    float64
-	durCount  int64
-	usageMu   sync.Mutex
-	usageFile io.WriteCloser
+	mu       sync.Mutex
+	agents   map[string]*AgentStats
+	outcomes map[[2]string]int64 // never reset: Prometheus counters
+	cost     map[string]float64
+	tokens   map[[2]string]int64
+	durSum   float64
+	durCount int64
 }
 
-// New creates the statistics store. usagePath enables the JSONL usage file.
-func New(authMode string, gauges Gauges, usagePath string) (*Stats, error) {
-	s := &Stats{
+var (
+	_ Recorder = (*Collector)(nil)
+	_ Reporter = (*Collector)(nil)
+)
+
+// NewCollector creates a collector. gauges may be nil; a nil sink discards
+// usage records.
+func NewCollector(authMode string, gauges Gauges, sink UsageSink) *Collector {
+	if sink == nil {
+		sink = DiscardUsage{}
+	}
+	return &Collector{
 		authMode:  authMode,
 		startedAt: time.Now(),
 		gauges:    gauges,
+		sink:      sink,
 		now:       time.Now,
 		agents:    map[string]*AgentStats{},
 		outcomes:  map[[2]string]int64{},
 		cost:      map[string]float64{},
 		tokens:    map[[2]string]int64{},
 	}
-	if usagePath != "" {
-		f, err := os.OpenFile(usagePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-		if err != nil {
-			return nil, fmt.Errorf("usage_log: %w", err)
-		}
-		s.usageFile = f
-	}
-	return s, nil
 }
 
-// Close closes the usage file.
-func (s *Stats) Close() error {
-	s.usageMu.Lock()
-	defer s.usageMu.Unlock()
-	if s.usageFile == nil {
-		return nil
-	}
-	err := s.usageFile.Close()
-	s.usageFile = nil
-	return err
-}
-
-// Record updates the counters and appends t to the usage file. A write error
-// is returned for logging; the counters are updated regardless.
-func (s *Stats) Record(t Turn) error {
+// Record implements Recorder.
+func (s *Collector) Record(t Turn) error {
 	s.mu.Lock()
 	a := s.agents[t.Agent]
 	if a == nil {
@@ -159,24 +165,13 @@ func (s *Stats) Record(t Turn) error {
 	s.durCount++
 	s.mu.Unlock()
 
-	s.usageMu.Lock()
-	defer s.usageMu.Unlock()
-	if s.usageFile == nil {
-		return nil
-	}
 	t.TS = s.now().UTC().Format(time.RFC3339)
 	t.AuthMode = s.authMode
-	line, err := json.Marshal(t)
-	if err != nil {
-		return err
-	}
-	_, err = s.usageFile.Write(append(line, '\n'))
-	return err
+	return s.sink.Write(t)
 }
 
-// Snapshot returns the current counters; with reset they are zeroed after
-// being read. Prometheus counters are never reset.
-func (s *Stats) Snapshot(reset bool) Snapshot {
+// Snapshot implements Reporter. Prometheus counters are never reset.
+func (s *Collector) Snapshot(reset bool) Snapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now()
@@ -203,8 +198,8 @@ func (s *Stats) Snapshot(reset bool) Snapshot {
 	return snap
 }
 
-// WriteMetrics renders the Prometheus text exposition format.
-func (s *Stats) WriteMetrics(w io.Writer) {
+// WriteMetrics implements Reporter.
+func (s *Collector) WriteMetrics(w io.Writer) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var b strings.Builder

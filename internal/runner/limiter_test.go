@@ -8,7 +8,7 @@ import (
 )
 
 func TestLimiterQueueFull(t *testing.T) {
-	l := NewLimiter(1, 1, 0)
+	l := NewFIFOLimiter(1, 1, 0)
 	r1, err := l.Acquire(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -40,7 +40,7 @@ func TestLimiterQueueFull(t *testing.T) {
 }
 
 func TestLimiterFIFO(t *testing.T) {
-	l := NewLimiter(1, 10, 0)
+	l := NewFIFOLimiter(1, 10, 0)
 	release, _ := l.Acquire(context.Background())
 	order := make(chan int, 5)
 	for i := 0; i < 5; i++ {
@@ -65,7 +65,7 @@ func TestLimiterFIFO(t *testing.T) {
 }
 
 func TestLimiterTimeoutAndCancel(t *testing.T) {
-	l := NewLimiter(1, 5, 20*time.Millisecond)
+	l := NewFIFOLimiter(1, 5, 20*time.Millisecond)
 	release, _ := l.Acquire(context.Background())
 	if _, err := l.Acquire(context.Background()); !errors.Is(err, ErrQueueTimeout) {
 		t.Fatalf("got %v", err)
@@ -82,7 +82,7 @@ func TestLimiterTimeoutAndCancel(t *testing.T) {
 	if l.Active() != 0 {
 		t.Fatalf("active %d", l.Active())
 	}
-	if NewLimiter(0, 0, 0).max != 1 {
+	if NewFIFOLimiter(0, 0, 0).max != 1 {
 		t.Fatal("minimum concurrency")
 	}
 }

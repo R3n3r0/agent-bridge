@@ -14,9 +14,8 @@ import (
 	"time"
 
 	"github.com/r3n3r0/agent-bridge/internal/config"
-	"github.com/r3n3r0/agent-bridge/internal/runner"
-	"github.com/r3n3r0/agent-bridge/internal/session"
 	"github.com/r3n3r0/agent-bridge/internal/stats"
+	"github.com/r3n3r0/agent-bridge/internal/turn"
 )
 
 const (
@@ -35,33 +34,28 @@ const (
 
 var requestIDRe = regexp.MustCompile(`^[a-zA-Z0-9._:-]{1,128}$`)
 
-// Options wires the server dependencies.
+// Options wires the server dependencies. The server only knows interfaces:
+// turn execution and statistics can be replaced independently.
 type Options struct {
-	Config   *config.Config
-	Registry *session.Registry
-	Limiter  *runner.Limiter
-	Stats    *stats.Stats
-	Logger   *slog.Logger
-	// BaseEnv is the environment the child environment is derived from,
-	// usually os.Environ().
-	BaseEnv []string
+	Config *config.Config
+	Turns  turn.Service
+	Stats  stats.Reporter
+	Logger *slog.Logger
 	// KeepaliveInterval defaults to 15 seconds.
 	KeepaliveInterval time.Duration
-	// HardStop, when done, terminates every running turn. It is canceled
-	// when the shutdown grace period expires.
-	HardStop context.Context
+	// Ready reports whether the server can execute turns; nil means the
+	// CLI binary must be found in PATH.
+	Ready func() error
 }
 
 // Server serves the bridge API.
 type Server struct {
 	cfg       *config.Config
-	reg       *session.Registry
-	limiter   *runner.Limiter
-	stats     *stats.Stats
+	turns     turn.Service
+	stats     stats.Reporter
 	log       *slog.Logger
-	baseEnv   []string
 	keepalive time.Duration
-	hardStop  context.Context
+	ready     func() error
 	keyHash   [32]byte
 }
 
@@ -69,13 +63,11 @@ type Server struct {
 func New(o Options) *Server {
 	s := &Server{
 		cfg:       o.Config,
-		reg:       o.Registry,
-		limiter:   o.Limiter,
+		turns:     o.Turns,
 		stats:     o.Stats,
 		log:       o.Logger,
-		baseEnv:   o.BaseEnv,
 		keepalive: o.KeepaliveInterval,
-		hardStop:  o.HardStop,
+		ready:     o.Ready,
 	}
 	if s.log == nil {
 		s.log = slog.Default()
@@ -83,8 +75,11 @@ func New(o Options) *Server {
 	if s.keepalive <= 0 {
 		s.keepalive = defaultKeepaliveInterval
 	}
-	if s.hardStop == nil {
-		s.hardStop = context.Background()
+	if s.ready == nil {
+		s.ready = func() error {
+			_, err := exec.LookPath(s.cfg.Binary)
+			return err
+		}
 	}
 	if s.cfg.APIKey != "" {
 		s.keyHash = sha256.Sum256([]byte(s.cfg.APIKey))
@@ -185,7 +180,7 @@ func (s *Server) auth(next http.Handler) http.Handler {
 
 func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	if _, err := exec.LookPath(s.cfg.Binary); err != nil {
+	if err := s.ready(); err != nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = w.Write([]byte("not ready: CLI binary not executable\n"))
 		return

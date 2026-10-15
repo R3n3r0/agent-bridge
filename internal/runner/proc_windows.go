@@ -7,11 +7,12 @@ import (
 	"strconv"
 )
 
-// procControl terminates the whole process tree with taskkill, so commands
-// started by the CLI's shell tool die with it.
-type procControl struct{}
+// treeController terminates the whole process tree with taskkill.
+type treeController struct{}
 
-func setupProcess(cmd *exec.Cmd) *procControl {
+func newProcessController() processController { return treeController{} }
+
+func (treeController) prepare(cmd *exec.Cmd) {
 	cmd.Cancel = func() error {
 		kill := exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid))
 		if err := kill.Run(); err != nil {
@@ -19,9 +20,8 @@ func setupProcess(cmd *exec.Cmd) *procControl {
 		}
 		return nil
 	}
-	return &procControl{}
 }
 
-func (pc *procControl) cleanup(cmd *exec.Cmd) {}
+func (treeController) cleanup(*exec.Cmd) {}
 
-func (pc *procControl) stop() {}
+func (treeController) stop() {}

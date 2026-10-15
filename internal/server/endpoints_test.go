@@ -200,7 +200,7 @@ func TestHardStopCancelsTurns(t *testing.T) {
 	waitFor(t, func() bool { return len(h.starts()) == 1 })
 	h.hard()
 	resp := <-done
-	e := expectError(t, resp, 502, errUpstream)
+	e := expectError(t, resp, 503, errServerError)
 	if !strings.Contains(e.Message, "shutting down") {
 		t.Fatalf("message %q", e.Message)
 	}

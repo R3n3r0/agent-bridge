@@ -29,6 +29,22 @@ var (
 	ErrNoResult = errors.New("process ended without a result event")
 )
 
+// Executor runs one turn of the CLI. CLIExecutor is the implementation that
+// starts a real process; tests and alternative back ends provide their own.
+type Executor interface {
+	// Run executes req until the process exits. The returned error is nil
+	// whenever a result event arrived; otherwise it is ErrTimeout,
+	// ErrCanceled, ErrNoResult or a start error. The Outcome is never nil.
+	Run(ctx context.Context, req Request) (*Outcome, error)
+}
+
+// CLIExecutor starts the CLI as a child process, without a shell, and
+// terminates its whole process tree on timeout or cancellation. The zero
+// value is ready to use.
+type CLIExecutor struct{}
+
+var _ Executor = CLIExecutor{}
+
 // Request describes one CLI process.
 type Request struct {
 	Binary  string
@@ -53,11 +69,9 @@ type Outcome struct {
 	Duration     time.Duration
 }
 
-// Run starts the CLI, feeds the prompt on stdin and reads events until the
-// process exits. The returned error is nil whenever a result event arrived;
-// otherwise it is ErrTimeout, ErrCanceled, ErrNoResult or a start error. The
-// Outcome is never nil.
-func Run(ctx context.Context, req Request) (*Outcome, error) {
+// Run implements Executor: it starts the CLI, feeds the prompt on stdin and
+// reads events until the process exits.
+func (CLIExecutor) Run(ctx context.Context, req Request) (*Outcome, error) {
 	out := &Outcome{}
 	start := time.Now()
 	defer func() { out.Duration = time.Since(start) }()
@@ -102,7 +116,8 @@ func Run(ctx context.Context, req Request) (*Outcome, error) {
 	stderr := &tailBuffer{max: stderrKeep}
 	cmd.Stderr = stderr
 	cmd.WaitDelay = killGrace
-	pc := setupProcess(cmd)
+	pc := newProcessController()
+	pc.prepare(cmd)
 
 	err := cmd.Start()
 	if err != nil {

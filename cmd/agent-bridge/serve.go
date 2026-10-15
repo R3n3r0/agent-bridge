@@ -18,6 +18,7 @@ import (
 	"github.com/r3n3r0/agent-bridge/internal/server"
 	"github.com/r3n3r0/agent-bridge/internal/session"
 	"github.com/r3n3r0/agent-bridge/internal/stats"
+	"github.com/r3n3r0/agent-bridge/internal/turn"
 	"github.com/r3n3r0/agent-bridge/internal/version"
 )
 
@@ -62,36 +63,51 @@ func serve(args []string, stderr io.Writer) int {
 	defer os.RemoveAll(scratch)
 	cfg.SetScratchDir(scratch)
 
-	regOpts := session.Options{
+	storeOpts := session.Options{Policy: session.Policy{
 		TTL:        time.Duration(cfg.Sessions.TTLHours) * time.Hour,
 		MaxEntries: cfg.Sessions.MaxEntries,
-	}
+	}}
 	if cfg.Sessions.Store == config.SessionStoreFile {
-		regOpts.Path = cfg.Sessions.Path
+		storeOpts.Path = cfg.Sessions.Path
 	}
-	reg, err := session.New(regOpts)
+	store, err := session.NewStore(storeOpts)
 	if err != nil {
-		log.Error("cannot open session registry", "error", err)
+		log.Error("cannot open session store", "error", err)
 		return 1
 	}
-	limiter := runner.NewLimiter(cfg.MaxConcurrent, cfg.MaxQueue, time.Duration(cfg.QueueTimeoutSeconds)*time.Second)
-	st, err := stats.New(string(cfg.AuthMode), limiter, cfg.UsageLog)
-	if err != nil {
-		log.Error("cannot open usage log", "error", err)
-		return 1
+	var sink stats.UsageSink = stats.DiscardUsage{}
+	if cfg.UsageLog != "" {
+		if sink, err = stats.OpenJSONLUsageLog(cfg.UsageLog); err != nil {
+			log.Error("cannot open usage log", "error", err)
+			return 1
+		}
 	}
-	defer st.Close()
+	defer sink.Close()
 
+	// Wiring: every component below is used through its interface.
+	limiter := runner.NewFIFOLimiter(cfg.MaxConcurrent, cfg.MaxQueue, time.Duration(cfg.QueueTimeoutSeconds)*time.Second)
+	collector := stats.NewCollector(string(cfg.AuthMode), limiter, sink)
 	hardStop, hardCancel := context.WithCancel(context.Background())
 	defer hardCancel()
-	srv := server.New(server.Options{
-		Config:   cfg,
-		Registry: reg,
+	turns := turn.NewService(turn.Deps{
+		Store:    store,
+		Locker:   session.NewKeyLocker(),
+		Executor: runner.CLIExecutor{},
 		Limiter:  limiter,
-		Stats:    st,
+		Recorder: collector,
 		Logger:   log,
+	}, turn.Settings{
+		Binary:   cfg.Binary,
+		AuthMode: cfg.AuthMode,
+		OnBusy:   cfg.Sessions.OnBusy,
 		BaseEnv:  os.Environ(),
 		HardStop: hardStop,
+	})
+	srv := server.New(server.Options{
+		Config: cfg,
+		Turns:  turns,
+		Stats:  collector,
+		Logger: log,
 	})
 	httpSrv := &http.Server{
 		Handler:           srv.Handler(),

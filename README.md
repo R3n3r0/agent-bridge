@@ -205,6 +205,21 @@ turno di prova su Haiku.
 
 ## FAQ
 
+**Supporta il function calling di OpenAI (`tools`, `tool_calls`)?** No. I
+parametri `tools` e `tool_choice` sono accettati e ignorati, e la risposta non
+contiene mai `tool_calls`: il server non restituisce al client le chiamate a
+funzione da eseguire. I tool funzionano invece *dentro* l'agente: lettura e
+modifica di file, comandi, ricerca e server MCP (`mcp_config`) vengono eseguiti
+dalla CLI sulla macchina del server, con i permessi configurati, e il client
+riceve solo il risultato finale. Per esporre funzioni proprie all'agente, la
+strada è un server MCP.
+
+**Funziona esattamente come l'API OpenAI?** Per il sottoinsieme usato dagli SDK
+per chat e streaming sì (stessi formati di richiesta, risposta, chunk, errori e
+`usage`). Non ci sono `temperature`, `n`, `logprobs`, output strutturato,
+immagini o audio, e ogni turno può durare minuti perché l'agente lavora in più
+passi.
+
 **Devo modificare il mio client OpenAI?** No: cambiare `base_url`
 (`http://127.0.0.1:8787/v1`), `api_key` (la `AGENT_BRIDGE_API_KEY`, o un valore
 qualsiasi se non impostata) e `model` (nome dell'agente).
@@ -224,6 +239,9 @@ titolare dell'account. Per più utenti usare la modalità `api`.
 o la seconda riceve 409 (`on_busy: reject`).
 
 ## Sviluppo
+
+Struttura a livelli con interfacce e implementazioni sostituibili:
+[docs/architecture.md](docs/architecture.md).
 
 ```sh
 go test -race ./...          # usa un finto binario della CLI, nessuna credenziale

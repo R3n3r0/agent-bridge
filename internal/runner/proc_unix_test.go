@@ -18,7 +18,7 @@ func TestRunKillsProcessTree(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "child.pid")
 	req := fakeRequest(t, "spawn_child", "FAKE_SLEEP_MS=60000", "FAKE_CHILD_PID="+pidFile)
 	req.Timeout = 500 * time.Millisecond
-	if _, err := Run(context.Background(), req); !errors.Is(err, ErrTimeout) {
+	if _, err := cli.Run(context.Background(), req); !errors.Is(err, ErrTimeout) {
 		t.Fatalf("got %v", err)
 	}
 	data, err := os.ReadFile(pidFile)

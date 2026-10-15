@@ -16,6 +16,9 @@ import (
 
 var fakeBin string
 
+// cli is the implementation under test, used through the interface.
+var cli Executor = CLIExecutor{}
+
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "runner-test-")
 	if err != nil {
@@ -54,7 +57,7 @@ func TestRunSuccess(t *testing.T) {
 		kinds = append(kinds, ev.Kind)
 		mu.Unlock()
 	}
-	out, err := Run(context.Background(), req)
+	out, err := cli.Run(context.Background(), req)
 	if err != nil {
 		t.Fatalf("%v (stderr %s)", err, out.Stderr)
 	}
@@ -82,25 +85,25 @@ func TestRunChatOnlyHasNoToolUse(t *testing.T) {
 			t.Errorf("tool_use event in chat-only mode")
 		}
 	}
-	if _, err := Run(context.Background(), req); err != nil {
+	if _, err := cli.Run(context.Background(), req); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestRunScenarios(t *testing.T) {
-	out, err := Run(context.Background(), fakeRequest(t, "max_turns"))
+	out, err := cli.Run(context.Background(), fakeRequest(t, "max_turns"))
 	if err != nil || out.Result.Subtype != SubtypeMaxTurns {
 		t.Fatalf("max_turns: %v %+v", err, out.Result)
 	}
-	out, err = Run(context.Background(), fakeRequest(t, "exec_error"))
+	out, err = cli.Run(context.Background(), fakeRequest(t, "exec_error"))
 	if err != nil || !out.Result.IsError {
 		t.Fatalf("exec_error: %v %+v", err, out.Result)
 	}
-	out, err = Run(context.Background(), fakeRequest(t, "no_result"))
+	out, err = cli.Run(context.Background(), fakeRequest(t, "no_result"))
 	if !errors.Is(err, ErrNoResult) || !strings.Contains(out.Stderr, "something broke") || out.ExitErr == nil {
 		t.Fatalf("no_result: %v %+v", err, out)
 	}
-	out, err = Run(context.Background(), fakeRequest(t, "garbage"))
+	out, err = cli.Run(context.Background(), fakeRequest(t, "garbage"))
 	if err != nil || out.Result.Result != "Fake answer." {
 		t.Fatalf("garbage: %v %+v", err, out)
 	}
@@ -109,7 +112,7 @@ func TestRunScenarios(t *testing.T) {
 func TestRunSessionIDFromResult(t *testing.T) {
 	req := fakeRequest(t, "new_session_id")
 	req.Args = Args(Spec{ToolsEnabled: true, ResumeID: "old-id"})
-	out, err := Run(context.Background(), req)
+	out, err := cli.Run(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +125,7 @@ func TestRunRecordsStdinArgsCwd(t *testing.T) {
 	rec := filepath.Join(t.TempDir(), "rec.jsonl")
 	req := fakeRequest(t, "success", "FAKE_RECORD="+rec)
 	req.Stdin = "line one\nline two"
-	if _, err := Run(context.Background(), req); err != nil {
+	if _, err := cli.Run(context.Background(), req); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(rec)
@@ -138,7 +141,7 @@ func TestRunTimeout(t *testing.T) {
 	req := fakeRequest(t, "slow", "FAKE_SLEEP_MS=10000")
 	req.Timeout = 300 * time.Millisecond
 	start := time.Now()
-	_, err := Run(context.Background(), req)
+	_, err := cli.Run(context.Background(), req)
 	if !errors.Is(err, ErrTimeout) {
 		t.Fatalf("got %v", err)
 	}
@@ -150,7 +153,7 @@ func TestRunTimeout(t *testing.T) {
 func TestRunCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	time.AfterFunc(200*time.Millisecond, cancel)
-	_, err := Run(ctx, fakeRequest(t, "slow", "FAKE_SLEEP_MS=10000"))
+	_, err := cli.Run(ctx, fakeRequest(t, "slow", "FAKE_SLEEP_MS=10000"))
 	if !errors.Is(err, ErrCanceled) {
 		t.Fatalf("got %v", err)
 	}
@@ -159,7 +162,7 @@ func TestRunCancel(t *testing.T) {
 func TestRunStartError(t *testing.T) {
 	req := fakeRequest(t, "success")
 	req.Binary = filepath.Join(t.TempDir(), "missing")
-	if _, err := Run(context.Background(), req); err == nil || errors.Is(err, ErrNoResult) {
+	if _, err := cli.Run(context.Background(), req); err == nil || errors.Is(err, ErrNoResult) {
 		t.Fatalf("got %v", err)
 	}
 }

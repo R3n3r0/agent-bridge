@@ -10,6 +10,7 @@ import (
 
 	"github.com/r3n3r0/agent-bridge/internal/config"
 	"github.com/r3n3r0/agent-bridge/internal/prompt"
+	"github.com/r3n3r0/agent-bridge/internal/turn"
 )
 
 const maxProgressComment = 300
@@ -71,14 +72,15 @@ func truncateRunes(s string, max int) string {
 }
 
 type execResult struct {
-	res *turnResult
-	err *apiError
+	res *turn.Result
+	err error
 }
 
 // streamTurn runs the turn and streams the response as SSE: role chunk,
 // progress (comments or content), final content, finish chunk, optional
 // usage chunk, [DONE].
-func (s *Server) streamTurn(ctx context.Context, w http.ResponseWriter, t *turn, model string, includeUsage bool) {
+func (s *Server) streamTurn(ctx context.Context, w http.ResponseWriter, call *chatCall) {
+	model := call.model
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-cache")
@@ -93,7 +95,7 @@ func (s *Server) streamTurn(ctx context.Context, w http.ResponseWriter, t *turn,
 	progress := make(chan string, 16)
 	done := make(chan execResult, 1)
 	go func() {
-		res, err := s.execute(ctx, t, func(text string) {
+		res, err := s.turns.Execute(ctx, call.turn, func(text string) {
 			select {
 			case progress <- text:
 			case <-ctx.Done():
@@ -145,15 +147,15 @@ func (s *Server) streamTurn(ctx context.Context, w http.ResponseWriter, t *turn,
 				}
 			}
 			if r.err != nil {
-				sse.data(r.err.body())
+				sse.data(toAPIError(r.err).body())
 				sse.done()
 				return
 			}
-			sse.chunk(delta{Content: r.res.content}, nil)
-			finish := r.res.finishReason
+			sse.chunk(delta{Content: r.res.Content}, nil)
+			finish := r.res.FinishReason
 			sse.chunk(delta{}, &finish)
-			if includeUsage {
-				u := r.res.usage
+			if call.includeUsage {
+				u := usageOf(r.res)
 				sse.data(chatChunk{
 					ID: sse.id, Object: "chat.completion.chunk", Created: sse.created, Model: model,
 					Choices: []chunkChoice{}, Usage: &u,

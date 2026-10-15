@@ -175,7 +175,7 @@ func liveCheck(d *doctorReport, cfg *config.Config) {
 	}
 	defer os.RemoveAll(dir)
 	spec := runner.Spec{Model: "haiku", ToolsEnabled: false, MaxTurns: 1}
-	out, err := runner.Run(context.Background(), runner.Request{
+	out, err := runner.CLIExecutor{}.Run(context.Background(), runner.Request{
 		Binary:  cfg.Binary,
 		Args:    runner.Args(spec),
 		Env:     runner.Env(os.Environ(), cfg.AuthMode),

@@ -29,9 +29,12 @@ func TestKeys(t *testing.T) {
 }
 
 func TestMemoryGetPutDelete(t *testing.T) {
-	r, err := New(Options{})
+	r, err := NewStore(Options{})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, ok := r.(*MemoryStore); !ok {
+		t.Fatalf("NewStore without path returned %T", r)
 	}
 	if _, ok := r.Get("x"); ok {
 		t.Fatal("unexpected entry")
@@ -57,7 +60,7 @@ func TestMemoryGetPutDelete(t *testing.T) {
 
 func TestTTL(t *testing.T) {
 	c := &clock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
-	r, _ := New(Options{TTL: time.Hour, Now: c.now})
+	r := NewMemoryStore(Policy{TTL: time.Hour, Now: c.now})
 	_ = r.Put("old", Entry{LastUsedAt: c.t})
 	c.t = c.t.Add(30 * time.Minute)
 	if _, ok := r.Get("old"); !ok {
@@ -74,7 +77,7 @@ func TestTTL(t *testing.T) {
 
 func TestLRU(t *testing.T) {
 	base := time.Now()
-	r, _ := New(Options{MaxEntries: 2})
+	r := NewMemoryStore(Policy{MaxEntries: 2})
 	_ = r.Put("a", Entry{LastUsedAt: base})
 	_ = r.Put("b", Entry{LastUsedAt: base.Add(2 * time.Second)})
 	_ = r.Put("a", Entry{LastUsedAt: base.Add(3 * time.Second)}) // a used again
@@ -93,9 +96,12 @@ func TestLRU(t *testing.T) {
 func TestFilePersistence(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sub", "sessions.json")
-	r, err := New(Options{Path: path})
+	r, err := NewStore(Options{Path: path})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, ok := r.(*FileStore); !ok {
+		t.Fatalf("NewStore with path returned %T", r)
 	}
 	now := time.Now().UTC().Truncate(time.Second)
 	e := Entry{CLISessionID: "abc", Agent: "coder", Cwd: "/w", CreatedAt: now, LastUsedAt: now, Turns: 3}
@@ -107,7 +113,7 @@ func TestFilePersistence(t *testing.T) {
 	if len(files) != 1 || files[0].Name() != "sessions.json" {
 		t.Fatalf("unexpected files: %v", files)
 	}
-	r2, err := New(Options{Path: path})
+	r2, err := NewFileStore(path, Policy{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +122,7 @@ func TestFilePersistence(t *testing.T) {
 		t.Fatalf("reloaded %+v, want %+v", got, e)
 	}
 	_ = r2.Delete("coder|k")
-	r3, _ := New(Options{Path: path})
+	r3, _ := NewFileStore(path, Policy{})
 	if r3.Len() != 0 {
 		t.Fatal("delete not persisted")
 	}
@@ -129,7 +135,7 @@ func TestFileLoadPrunesAndErrors(t *testing.T) {
 	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	r, err := New(Options{Path: path, TTL: time.Hour})
+	r, err := NewFileStore(path, Policy{TTL: time.Hour})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,23 +145,23 @@ func TestFileLoadPrunesAndErrors(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{broken"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := New(Options{Path: path}); err == nil {
+	if _, err := NewFileStore(path, Policy{}); err == nil {
 		t.Fatal("corrupt file accepted")
 	}
 	if err := os.WriteFile(path, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := New(Options{Path: path}); err != nil {
+	if _, err := NewFileStore(path, Policy{}); err != nil {
 		t.Fatalf("empty file: %v", err)
 	}
-	if _, err := New(Options{Path: dir}); err == nil {
+	if _, err := NewFileStore(dir, Policy{}); err == nil {
 		t.Fatal("directory accepted as file")
 	}
 }
 
 func TestSaveError(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.json")
-	r, err := New(Options{Path: path})
+	r, err := NewFileStore(path, Policy{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +179,7 @@ func TestSaveError(t *testing.T) {
 }
 
 func TestLockSerialises(t *testing.T) {
-	r, _ := New(Options{})
+	r := NewKeyLocker()
 	var running, maxRunning int32
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
@@ -202,13 +208,13 @@ func TestLockSerialises(t *testing.T) {
 	if maxRunning != 1 {
 		t.Fatalf("max concurrent holders %d", maxRunning)
 	}
-	if len(r.locks) != 0 {
+	if r.size() != 0 {
 		t.Fatal("lock map not cleaned up")
 	}
 }
 
 func TestLockCancelAndTryLock(t *testing.T) {
-	r, _ := New(Options{})
+	var r Locker = NewKeyLocker()
 	unlock, err := r.TryLock("k")
 	if err != nil {
 		t.Fatal(err)

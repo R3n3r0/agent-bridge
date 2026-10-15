@@ -13,10 +13,7 @@ func (g gauges) Active() int { return g.a }
 func (g gauges) Queued() int { return g.q }
 
 func TestRecordSnapshotReset(t *testing.T) {
-	s, err := New("api", gauges{1, 2}, "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := NewCollector("api", gauges{1, 2}, nil)
 	_ = s.Record(Turn{Agent: "a", Outcome: OutcomeSuccess, DurationMs: 100, CostUSD: 0.5, InputTokens: 1, OutputTokens: 2, CacheReadTokens: 3, CacheCreationTokens: 4})
 	_ = s.Record(Turn{Agent: "a", Outcome: OutcomeError, DurationMs: 300})
 	_ = s.Record(Turn{Agent: "b", Outcome: OutcomeTimeout})
@@ -57,17 +54,18 @@ func TestRecordSnapshotReset(t *testing.T) {
 
 func TestUsageFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "usage.jsonl")
-	s, err := New("subscription", nil, path)
+	sink, err := OpenJSONLUsageLog(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	s := NewCollector("subscription", nil, sink)
 	if err := s.Record(Turn{Agent: "a", Outcome: OutcomeSuccess, RequestID: "r1"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Close(); err != nil {
+	if err := sink.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Close(); err != nil {
+	if err := sink.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Record(Turn{Agent: "a"}); err != nil {
@@ -79,10 +77,24 @@ func TestUsageFile(t *testing.T) {
 		!strings.Contains(line, `"ts":"`) || strings.Count(string(data), "\n") != 1 {
 		t.Fatalf("usage line %s", data)
 	}
-	if _, err := New("x", nil, filepath.Join(t.TempDir(), "missing", "u.jsonl")); err == nil {
+	if _, err := OpenJSONLUsageLog(filepath.Join(t.TempDir(), "missing", "u.jsonl")); err == nil {
 		t.Fatal("unwritable path accepted")
 	}
 	if snap := s.Snapshot(false); snap.Active != 0 {
 		t.Fatal("nil gauges")
+	}
+}
+
+type failingSink struct{ DiscardUsage }
+
+func (failingSink) Write(Turn) error { return os.ErrClosed }
+
+func TestSinkErrorKeepsCounters(t *testing.T) {
+	s := NewCollector("api", nil, failingSink{})
+	if err := s.Record(Turn{Agent: "a", Outcome: OutcomeSuccess}); err == nil {
+		t.Fatal("sink error not returned")
+	}
+	if s.Snapshot(false).Agents["a"].Requests != 1 {
+		t.Fatal("counters not updated")
 	}
 }
