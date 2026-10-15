@@ -2,21 +2,22 @@
 
 ## Unreleased
 
-Prima implementazione completa delle specifiche v1.0:
+First complete implementation of the specification ([docs/specification.md](docs/specification.md), rev. 1.2):
 
-- API compatibile OpenAI: `POST /v1/chat/completions` (JSON e SSE), `GET /v1/models`, `GET /v1/models/{id}`.
-- Modelli built-in solo chat e agenti configurabili da file JSON.
-- Sessioni multi-turno con ripresa, store in memoria o su file, TTL, LRU, serializzazione per sessione.
-- Coda con limite di concorrenza, timeout, terminazione dell'albero dei processi su Unix e Windows.
-- Modalità `subscription` e `api`, bind loopback di default, chiave Bearer, CORS, override per richiesta.
-- Redazione dei segreti, request ID, log strutturati, file di utilizzo, `/stats`, `/metrics`, `/healthz`, `/readyz`.
-- Comandi `serve`, `check-config`, `doctor`, `version`.
-- Function calling compatibile OpenAI: `tools`, `tool_choice`, `parallel_tool_calls`, `tool_calls` in risposta
-  (JSON e streaming), messaggi `tool` in ingresso, formato deprecato `functions`/`function_call`. Le funzioni
-  sono offerte alla CLI tramite un server MCP interno (`agent-bridge mcp-tools`) e il processo resta in attesa
-  dei risultati del client tra una richiesta e l'altra.
-- Uso da orchestratori esterni: funzioni in modalità senza stato (`client_tools.mode`, header
-  `X-Agent-Bridge-Tool-Mode`), messaggi `system` come system prompt (`system_messages`, header
-  `X-Agent-Bridge-System-Mode`), qualsiasi modello come `claude-code/<modello>` (`builtin_any_model`).
-- Struttura a livelli con interfacce (`turn.Service`, `session.Store`/`Locker`, `runner.Executor`/`Limiter`,
+- OpenAI-compatible API: `POST /v1/chat/completions` (JSON and SSE), `GET /v1/models`, `GET /v1/models/{id}`.
+- Chat-only built-in models (`claude-code/opus`, `claude-code/sonnet`, `claude-code/haiku`, `claude-code/<model>`)
+  and agents configured from a JSON file.
+- Multi-turn sessions with resume, in-memory or file store, TTL, LRU, per-session serialization.
+- Queue with a concurrency limit, timeouts, process-tree termination on Unix and Windows.
+- `subscription` and `api` modes, loopback bind by default, Bearer key, CORS, per-request overrides.
+- Secret redaction, request IDs, structured logs, usage file, `/stats`, `/metrics`, `/healthz`, `/readyz`.
+- Commands `serve`, `check-config`, `doctor`, `version`.
+- OpenAI-compatible function calling: `tools`, `tool_choice`, `parallel_tool_calls`, `tool_calls` in responses
+  (JSON and streaming), incoming `tool` messages, deprecated `functions`/`function_call` format. Functions are
+  offered to the CLI through an internal MCP server (`agent-bridge mcp-tools`).
+- Use from external orchestrators: stateless client functions (`client_tools.mode`, header
+  `X-Agent-Bridge-Tool-Mode`), `system` messages as the system prompt (`system_messages`, header
+  `X-Agent-Bridge-System-Mode`), any model as `claude-code/<model>` (`builtin_any_model`).
+- Layered structure with interfaces (`turn.Service`, `session.Store`/`Locker`, `runner.Executor`/`Limiter`,
   `stats.Recorder`/`Reporter`/`UsageSink`, `tools.Broker`).
+- Documentation in English, with an Italian version of every document (`*.it.md`).

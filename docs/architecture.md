@@ -1,80 +1,93 @@
-# Architettura
+# Architecture
 
-Il codice è diviso in livelli. Ogni livello dipende dalle **interfacce** del
-livello sotto, mai dalle implementazioni concrete; il cablaggio avviene in un
-solo punto, `cmd/agent-bridge/serve.go`.
+**English** · [Italiano](architecture.it.md)
+
+The code is divided into layers. Each layer depends on the **interfaces** of the
+layer below, never on concrete implementations; wiring happens in a
+single place, `cmd/agent-bridge/serve.go`.
 
 ```text
-HTTP (internal/server)            parsing OpenAI, SSE, auth, CORS, mappatura errori
+HTTP (internal/server)            OpenAI parsing, SSE, auth, CORS, error mapping
    │  turn.Service, stats.Reporter
    ▼
-Dominio (internal/turn)           sessione, prompt, coda, esecuzione, ripresa, statistiche,
-   │                              turni sospesi in attesa dei risultati delle funzioni
+Domain (internal/turn)            session, prompt, queue, execution, resume, statistics,
+   │                              suspended turns awaiting function results
    │  session.Store, session.Locker, runner.Executor, runner.Limiter, stats.Recorder, tools.Broker
    ▼
-Infrastruttura                    implementazioni sostituibili
+Infrastructure                    replaceable implementations
    internal/session   MemoryStore, FileStore, KeyLocker
-   internal/runner    CLIExecutor (processo reale), FIFOLimiter, controllo processi per OS
+   internal/runner    CLIExecutor (real process), FIFOLimiter, per-OS process control
    internal/stats     Collector, JSONLUsageLog, DiscardUsage
-   internal/tools     HTTPBroker, server MCP delle funzioni del client (ServeMCP)
+   internal/tools     HTTPBroker, client functions MCP server (ServeMCP)
 ```
 
-## Interfacce
+## Interfaces
 
-| Interfaccia | Pacchetto | Implementazioni | Responsabilità |
+| Interface | Package | Implementations | Responsibility |
 | --- | --- | --- | --- |
-| `Service` | `turn` | servizio di default (`NewService`) | Esegue un turno: `Admit` (controlli prima della risposta) ed `Execute` |
-| `Store` | `session` | `MemoryStore`, `FileStore` | Persistenza delle sessioni con TTL e LRU |
-| `Locker` | `session` | `KeyLocker` | Esclusione mutua per sessione |
-| `Executor` | `runner` | `CLIExecutor` | Esegue un processo della CLI e ne raccoglie gli eventi |
-| `Limiter` | `runner` | `FIFOLimiter` | Concorrenza massima e coda FIFO |
-| `Recorder`, `Reporter` | `stats` | `Collector` | Registrazione dei turni; esposizione di `/stats` e `/metrics` |
-| `UsageSink` | `stats` | `JSONLUsageLog`, `DiscardUsage` | Destinazione dei record di utilizzo |
-| `Broker` | `tools` | `HTTPBroker` | Instrada le chiamate alle funzioni del client verso il turno che le attende |
-| `Handler` | `tools` | il turno in esecuzione | Riceve una chiamata e la blocca fino al risultato del client |
-| `processController` (interna) | `runner` | process group su Unix, `taskkill` su Windows | Terminazione dell'albero dei processi |
+| `Service` | `turn` | default service (`NewService`) | Runs a turn: `Admit` (checks before the response) and `Execute` |
+| `Store` | `session` | `MemoryStore`, `FileStore` | Session persistence with TTL and LRU |
+| `Locker` | `session` | `KeyLocker` | Per-session mutual exclusion |
+| `Executor` | `runner` | `CLIExecutor` | Runs a CLI process and collects its events |
+| `Limiter` | `runner` | `FIFOLimiter` | Maximum concurrency and FIFO queue |
+| `Recorder`, `Reporter` | `stats` | `Collector` | Recording of turns; exposure of `/stats` and `/metrics` |
+| `UsageSink` | `stats` | `JSONLUsageLog`, `DiscardUsage` | Destination of usage records |
+| `Broker` | `tools` | `HTTPBroker` | Routes client function calls to the turn waiting for them |
+| `Handler` | `tools` | the running turn | Receives a call and blocks it until the client's result |
+| `processController` (internal) | `runner` | process group on Unix, `taskkill` on Windows | Termination of the process tree |
 
-Le funzioni pure (costruzione del prompt in `prompt`, argomenti e ambiente in
-`runner.Args`/`runner.Env`, parsing degli eventi, validazione della
-configurazione) restano funzioni: non hanno stato né effetti collaterali da
-sostituire.
+Pure functions (prompt construction in `prompt`, arguments and environment in
+`runner.Args`/`runner.Env`, event parsing, configuration
+validation) remain functions: they have no state or side effects to
+replace.
 
 ## Function calling
 
 ```text
-client ──tools──▶ server ──▶ turn.Service ──avvia──▶ CLI ──MCP stdio──▶ agent-bridge mcp-tools
+client ──tools──▶ server ──▶ turn.Service ──starts─▶ CLI ──MCP stdio──▶ agent-bridge mcp-tools
                                   ▲                                          │ HTTP loopback + token
                                   └──────────── tools.HTTPBroker ◀───────────┘
 ```
 
-1. Il turno registra un `Handler` sul broker e scrive la configurazione MCP
-   che avvia `agent-bridge mcp-tools` con le definizioni delle funzioni.
-2. Il modello chiama `mcp__functions__<nome>`; la chiamata arriva al broker e
-   all'handler, che la tiene in sospeso. Dopo `batch_window_ms` le chiamate
-   raccolte tornano al client con `finish_reason: "tool_calls"`.
-3. Il processo resta vivo, con lock di sessione e slot di concorrenza. I
-   `tool_call_id` restituiti indicizzano il turno sospeso.
-4. La richiesta successiva con messaggi `tool` viene agganciata al turno
-   tramite gli id; i risultati sbloccano le chiamate e il modello continua.
-5. Scaduto `wait_timeout_seconds` il processo viene fermato; i risultati che
-   arrivano dopo fanno partire un processo nuovo con la cronologia completa.
+1. The turn registers a `Handler` on the broker and writes the MCP configuration
+   that starts `agent-bridge mcp-tools` with the function definitions.
+2. The model calls `mcp__functions__<name>`; the call reaches the broker and
+   the handler, which holds it pending. After `batch_window_ms` the
+   collected calls are returned to the client with `finish_reason: "tool_calls"`.
+3. `stateful` mode (default): the process stays alive, holding the session
+   lock and concurrency slot, and the returned `tool_call_id`s index
+   the suspended turn. The next request with `tool` messages is
+   attached to the turn via the ids; the results unblock the calls and the
+   model continues. Once `wait_timeout_seconds` expires, the process is stopped.
+4. `stateless` mode: the process is closed right after
+   returning the calls, and any associated session is
+   deleted.
+5. In both cases, results that do not find a waiting turn
+   start a new process with the full history sent by the client.
 
-## Errori
+## `system` messages
 
-Il dominio restituisce `*turn.Error` con un `Kind` (`KindInvalid`,
+With `system_messages` (or the `X-Agent-Bridge-System-Mode` header) set to `append` or
+`replace`, the service moves the `system`/`developer` messages from the request
+to the CLI's system prompt (`turn.applySystemMode`) and the prompt is
+built without them (`prompt.Options.OmitInstructions`).
+
+## Errors
+
+The domain returns `*turn.Error` with a `Kind` (`KindInvalid`,
 `KindSessionBusy`, `KindQueueFull`, `KindTimeout`, `KindUpstream`,
-`KindCanceled`, `KindShutdown`) e un messaggio già ripulito dai segreti. Solo
-il livello HTTP conosce i codici di stato: la mappatura è in
+`KindCanceled`, `KindShutdown`) and a message already scrubbed of secrets. Only
+the HTTP layer knows the status codes: the mapping is in
 `server.toAPIError`.
 
-## Estendere
+## Extending
 
-- **Store condiviso** (es. Redis per più istanze in modalità `api`):
-  implementare `session.Store` e, se serve un lock distribuito,
-  `session.Locker`; cambiare solo il cablaggio in `serve.go`.
-- **Altra destinazione dei consumi** (es. database): implementare
+- **Shared store** (e.g. Redis for multiple instances in `api` mode):
+  implement `session.Store` and, if a distributed lock is needed,
+  `session.Locker`; change only the wiring in `serve.go`.
+- **Another usage destination** (e.g. a database): implement
   `stats.UsageSink`.
-- **Esecuzione remota o in container**: implementare `runner.Executor`.
-- **Test**: il servizio si prova con fake delle interfacce, senza processi né
-  file (`internal/turn/service_test.go`); il server si prova end-to-end con un
-  finto binario della CLI (`testdata/fakecli`).
+- **Remote or container execution**: implement `runner.Executor`.
+- **Tests**: the service is tested with fakes of the interfaces, without processes or
+  files (`internal/turn/service_test.go`); the server is tested end-to-end with a
+  fake binary of the CLI (`testdata/fakecli`).

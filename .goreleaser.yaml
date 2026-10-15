@@ -29,6 +29,7 @@ archives:
         formats: [zip]
     files:
       - README.md
+      - README.it.md
       - CHANGELOG.md
       - docs/*
       - examples/**/*

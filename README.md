@@ -1,100 +1,101 @@
 # agent-bridge
 
-`agent-bridge` è un server HTTP scritto in Go che espone un'API compatibile OpenAI
-(`/v1/chat/completions`, `/v1/models`) e soddisfa ogni richiesta eseguendo la CLI
-ufficiale di Claude Code in modalità headless
+**English** · [Italiano](README.it.md)
+
+`agent-bridge` is an HTTP server written in Go that exposes an OpenAI-compatible
+API (`/v1/chat/completions`, `/v1/models`) and fulfils every request by running
+the official Claude Code CLI in headless mode
 (`claude -p --output-format stream-json`).
 
-Qualsiasi client o framework che parla OpenAI può usarlo cambiando solo
-`base_url`, `api_key` e `model`: chat, streaming e function calling funzionano
-con gli SDK ufficiali senza modifiche.
+Any client or framework that speaks OpenAI can use it by changing only
+`base_url`, `api_key` and `model`: chat, streaming and function calling work
+with the official SDKs unchanged.
 
-> **Progetto indipendente.** agent-bridge non è sviluppato, approvato né
-> supportato da Anthropic. Esegue il binario ufficiale `claude` installato
-> sulla macchina, senza modificarlo, e non accede mai alle sue credenziali.
+> **Independent project.** agent-bridge is not developed, endorsed or
+> supported by Anthropic. It runs the official `claude` binary installed on
+> the machine, without modifying it, and never accesses its credentials.
 
-- Binario singolo, sola libreria standard Go a runtime.
-- Linux, macOS e Windows (amd64 e arm64).
-- Stessa build per sviluppo (login con abbonamento) e produzione (API key).
-- Function calling OpenAI (`tools`, `tool_calls`), anche in streaming.
+- Single binary, Go standard library only at runtime.
+- Linux, macOS and Windows (amd64 and arm64).
+- Same build for development (subscription login) and production (API key).
+- OpenAI function calling (`tools`, `tool_calls`), streaming included.
 
-## Due modi di usarlo
+## Two ways to use it
 
-| | Come modello | Come agente sul server |
+| | As a model | As an agent on the server |
 | --- | --- | --- |
-| Chi definisce l'agente | Il tuo client o la tua piattaforma: `system`, `tools`, scelta del modello | Il file di configurazione del bridge |
-| Tool disponibili | Solo le funzioni che il client manda in `tools`, eseguite dal client | Tool della CLI sulla macchina del server (file, comandi, ricerca, server MCP), più le eventuali funzioni del client |
-| `model` | `claude-code/opus`, `claude-code/sonnet`, `claude-code/haiku`, `claude-code/<nome modello>` | Il nome dell'agente configurato |
-| Configurazione | Nessuna | File JSON |
-| Sezione | [Uso come modello](#uso-come-modello) | [Agenti sul server](#agenti-sul-server) |
+| Who defines the agent | Your client or platform: `system`, `tools`, model choice | The bridge configuration file |
+| Available tools | Only the functions the client sends in `tools`, executed by the client | CLI tools on the server machine (files, commands, search, MCP servers), plus any client functions |
+| `model` | `claude-code/opus`, `claude-code/sonnet`, `claude-code/haiku`, `claude-code/<model name>` | The name of the configured agent |
+| Configuration | None | JSON file |
+| Section | [Using it as a model](#using-it-as-a-model) | [Agents on the server](#agents-on-the-server) |
 
-I "tool" sono quindi di due tipi, entrambi supportati:
+"Tools" therefore come in two kinds, both supported:
 
-- **funzioni del client** (function calling OpenAI): le definisce e le esegue
-  il client; il modello le chiama tramite `tool_calls`;
-- **tool dell'agente**: `Read`, `Edit`, `Bash`, server MCP… eseguiti dalla CLI
-  sul server, secondo i permessi dell'agente; il client vede solo il
-  risultato finale.
+- **client functions** (OpenAI function calling): defined and executed by the
+  client; the model calls them through `tool_calls`;
+- **agent tools**: `Read`, `Edit`, `Bash`, MCP servers… executed by the CLI on
+  the server, within the agent's permissions; the client only sees the final
+  result.
 
-## Avvio rapido
+## Quick start
 
-Prerequisito: la CLI `claude` installata, versione **2.1.128 o successiva**, e un
-login fatto una volta in modo interattivo (`claude`).
+Prerequisite: the `claude` CLI installed, version **2.1.128 or later**, and one
+interactive login (`claude`).
 
 ```sh
 go install github.com/r3n3r0/agent-bridge/cmd/agent-bridge@latest
 AGENT_BRIDGE_AUTH_MODE=subscription agent-bridge
 curl -s http://127.0.0.1:8787/v1/chat/completions \
-  -d '{"model":"claude-code/haiku","messages":[{"role":"user","content":"Ciao!"}]}'
+  -d '{"model":"claude-code/haiku","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
-Senza file di configurazione il server ascolta su `127.0.0.1:8787` e accetta i
-modelli `claude-code/opus`, `claude-code/sonnet`, `claude-code/haiku` e
-`claude-code/<nome modello>` (il nome dopo il prefisso è passato alla CLI così
-com'è). Sono modelli *solo chat*: nessun tool del server, cartella di lavoro
-temporanea vuota, ma accettano le funzioni del client.
+Without a configuration file the server listens on `127.0.0.1:8787` and accepts
+the models `claude-code/opus`, `claude-code/sonnet`, `claude-code/haiku` and
+`claude-code/<model name>` (the name after the prefix is passed to the CLI as
+is). They are *chat-only* models: no server tools, an empty temporary working
+directory, but they accept client functions.
 
-In alternativa scaricare un binario dalla pagina delle release (archivi e
-`checksums.txt` per ogni piattaforma).
+Alternatively, download a binary from the releases page (archives and
+`checksums.txt` for every platform).
 
-## Uso come modello
+## Using it as a model
 
-È lo scenario di chi ha già una piattaforma con agenti, grafo e ciclo di vita
-propri (per esempio un sistema ReAct): il bridge si comporta come un modello
-OpenAI e l'agente è quello definito nella piattaforma.
+This is the scenario of a platform that already has its own agents, graph and
+lifecycle (for example a ReAct system): the bridge behaves like an OpenAI
+model and the agent is the one defined in the platform.
 
-| Nella piattaforma | Nella richiesta |
+| In the platform | In the request |
 | --- | --- |
-| Istruzioni dell'agente | messaggio `system` |
-| Tool dell'agente | `tools` |
-| Modello | `claude-code/<alias o nome modello>` |
+| Agent instructions | `system` message |
+| Agent tools | `tools` |
+| Model | `claude-code/<alias or model name>` |
 
-Due opzioni rendono il bridge senza stato e fanno dell'agente della piattaforma
-l'unico agente. Si impostano nella configurazione oppure per singola richiesta
-con un header:
+Two options make the bridge stateless and make the platform's agent the only
+agent. Set them in the configuration, or per request with a header:
 
-| Chiave di configurazione | Header | Effetto |
+| Configuration key | Header | Effect |
 | --- | --- | --- |
-| `client_tools.mode: "stateless"` | `X-Agent-Bridge-Tool-Mode: stateless` | Dopo aver restituito `tool_calls` il processo viene chiuso: ogni richiesta è un passo del grafo e la cronologia inviata dal client è l'unica fonte di verità. Ramificazioni, retry e checkpoint restano nella piattaforma |
-| `system_messages: "replace"` | `X-Agent-Bridge-System-Mode: replace` | I messaggi `system` diventano il system prompt effettivo al posto di quello della CLI, a ogni passo. Con `append` vi si aggiungono |
+| `client_tools.mode: "stateless"` | `X-Agent-Bridge-Tool-Mode: stateless` | After returning `tool_calls` the process exits: every request is one step of the graph and the history sent by the client is the only source of truth. Branches, retries and checkpoints stay in the platform |
+| `system_messages: "replace"` | `X-Agent-Bridge-System-Mode: replace` | `system` messages become the effective system prompt instead of the CLI one, at every step. With `append` they are added to it |
 
-Configurazione consigliata per questo scenario:
+Recommended configuration for this scenario:
 
 ```json
 { "client_tools": { "mode": "stateless" }, "system_messages": "replace" }
 ```
 
-In questo scenario non inviare `X-Session-Id`: ogni richiesta avvia un processo
-nuovo con la cronologia completa. Costa un po' di latenza per passo, in cambio
-di nessuno stato nascosto nel bridge.
+In this scenario do not send `X-Session-Id`: every request starts a new process
+with the full history. It costs some latency per step, in exchange for no
+hidden state in the bridge.
 
 ## Function calling
 
-Le funzioni definite dal client con `tools` funzionano come con l'API OpenAI:
-il modello risponde con `tool_calls` e `finish_reason: "tool_calls"`, il client
-esegue le funzioni e rimanda i risultati con messaggi `role: "tool"`, e il
-modello prosegue. Funziona anche in streaming (`delta.tool_calls`) e senza
-header di sessione.
+Functions defined by the client with `tools` work as with the OpenAI API: the
+model answers with `tool_calls` and `finish_reason: "tool_calls"`, the client
+runs the functions and sends the results back as `role: "tool"` messages, and
+the model continues. It also works when streaming (`delta.tool_calls`) and
+without session headers.
 
 ```python
 r = client.chat.completions.create(model="claude-code/sonnet", messages=messages, tools=tools)
@@ -106,283 +107,282 @@ while r.choices[0].finish_reason == "tool_calls":
     r = client.chat.completions.create(model="claude-code/sonnet", messages=messages, tools=tools)
 ```
 
-Esempio completo: [examples/python/tools.py](examples/python/tools.py).
+Complete example: [examples/python/tools.py](examples/python/tools.py).
 
-Supportati: `tools` (tipo `function`), `tool_choice` (`auto`, `none`,
-`required`, funzione specifica), `parallel_tool_calls` (chiamate parallele
-restituite insieme) e il formato deprecato `functions`/`function_call`.
+Supported: `tools` (type `function`), `tool_choice` (`auto`, `none`,
+`required`, a specific function), `parallel_tool_calls` (parallel calls
+returned together) and the deprecated `functions`/`function_call` format.
 
-**Come funziona.** Le funzioni del client vengono offerte alla CLI come tool di
-un server MCP standard, servito dal bridge stesso (sottocomando interno
-`mcp-tools`). Quando il modello ne chiama una, il bridge restituisce la chiamata
-al client. Poi, a seconda di `client_tools.mode`:
+**How it works.** Client functions are offered to the CLI as tools of a
+standard MCP server, served by the bridge itself (internal `mcp-tools`
+subcommand). When the model calls one, the bridge returns the call to the
+client. Then, depending on `client_tools.mode`:
 
-| Modalità | Cosa succede | Quando sceglierla |
+| Mode | What happens | When to choose it |
 | --- | --- | --- |
-| `stateful` (default) | Il processo resta in attesa; la richiesta con i risultati viene riconosciuta dai `tool_call_id` e lo stesso processo riprende da dove si era fermato | Client semplici: meno latenza tra i passi |
-| `stateless` | Il processo si chiude; la richiesta con i risultati avvia un processo nuovo con la cronologia completa | Orchestratori con stato proprio (vedi [Uso come modello](#uso-come-modello)) |
+| `stateful` (default) | The process waits; the request carrying the results is recognized by its `tool_call_id`s and the same process resumes where it stopped | Simple clients: lower latency between steps |
+| `stateless` | The process exits; the request carrying the results starts a new process with the full history | Orchestrators with their own state (see [Using it as a model](#using-it-as-a-model)) |
 
-Differenze da conoscere:
+Differences to be aware of:
 
-- `tool_choice` diverso da `auto`/`none` e `parallel_tool_calls: false` sono
-  resi come istruzioni al modello: il modello li rispetta, ma non sono vincoli
-  rigidi come nell'API OpenAI. Anche gli schemi `parameters` (e `strict`)
-  guidano il modello ma non vengono imposti.
-- In modalità `stateful` il processo in attesa occupa uno slot di concorrenza.
-  Se i risultati non arrivano entro `client_tools.wait_timeout_seconds`
-  (default 600) il processo viene fermato; una richiesta successiva con i
-  risultati riparte da un processo nuovo con la cronologia completa, quindi
-  funziona comunque.
-- Con il formato deprecato `functions` i risultati non hanno id: ogni chiamata
-  chiude il processo, come in modalità `stateless`.
-- In una risposta `tool_calls` l'`usage` riguarda solo l'ultimo messaggio del
-  modello; i totali del turno sono nei log e in `/stats`.
+- `tool_choice` other than `auto`/`none` and `parallel_tool_calls: false` are
+  expressed as instructions to the model: the model follows them, but they
+  are not hard constraints as in the OpenAI API. Function `parameters`
+  schemas (and `strict`) also guide the model but are not enforced.
+- In `stateful` mode the waiting process holds a concurrency slot. If the
+  results do not arrive within `client_tools.wait_timeout_seconds` (default
+  600) the process is stopped; a later request with the results starts a new
+  process from the full history, so it still works.
+- With the deprecated `functions` format results carry no id: every call ends
+  the process, as in `stateless` mode.
+- In a `tool_calls` response `usage` covers only the model's last message;
+  turn totals are in the logs and in `/stats`.
 
-## Agenti sul server
+## Agents on the server
 
-Un file JSON associa un nome di modello a un agente: modello, system prompt,
-tool della CLI, permessi e cartella di lavoro. Serve quando l'agente deve
-lavorare sulla macchina del server, per esempio su un repository.
+A JSON file maps a model name to an agent: model, system prompt, CLI tools,
+permissions and working directory. Use it when the agent must work on the
+server machine, for example on a repository.
 
 ```json
 {
   "agents": {
     "reviewer": {
       "model": "opus",
-      "system_prompt": "Sei un revisore severo. Non modificare file.",
+      "system_prompt": "You are a strict reviewer. Do not modify files.",
       "allowed_tools": ["Read", "Grep", "Glob"],
-      "cwd": "/srv/progetto"
+      "cwd": "/srv/project"
     },
     "coder": {
       "model": "sonnet",
       "allowed_tools": ["Read", "Edit", "Write", "Bash(go test *)"],
       "permission_mode": "acceptEdits",
-      "cwd": "/srv/progetto"
+      "cwd": "/srv/project"
     }
   }
 }
 ```
 
 ```sh
-agent-bridge check-config -config agents.json   # valida e mostra gli agenti risolti
+agent-bridge check-config -config agents.json   # validate and print the resolved agents
 AGENT_BRIDGE_AUTH_MODE=subscription agent-bridge -config agents.json
 ```
 
-Il client sceglie l'agente con il campo `model`:
+The client picks the agent with the `model` field:
 
 ```python
 from openai import OpenAI
 client = OpenAI(base_url="http://127.0.0.1:8787/v1", api_key="unused")
 r = client.chat.completions.create(
     model="reviewer",
-    messages=[{"role": "user", "content": "Rivedi la gestione degli errori."}],
+    messages=[{"role": "user", "content": "Review the error handling."}],
     extra_headers={"X-Session-Id": "review-42"},
 )
 print(r.choices[0].message.content)
 ```
 
-Un agente sul server può ricevere anche le funzioni del client in `tools`:
-userà sia i propri tool sia quelle.
+An agent on the server can also receive client functions in `tools`: it will
+use both its own tools and those.
 
-Riferimento completo: [docs/configuration.md](docs/configuration.md). Esempio
-commentato: [examples/agents.example.json](examples/agents.example.json).
+Full reference: [docs/configuration.md](docs/configuration.md). Annotated
+example: [examples/agents.example.json](examples/agents.example.json).
 
-## Conversazioni e sessioni
+## Conversations and sessions
 
-- **Senza `X-Session-Id`** (comportamento OpenAI): ogni richiesta avvia un
-  processo nuovo; la cronologia inviata dal client viene trasformata in un
-  unico prompt.
-- **Con `X-Session-Id`** (o il campo `user`): la stessa chiave riprende la
-  sessione della CLI con `--resume`, e alla CLI arrivano solo i messaggi nuovi
-  (utente e risultati dei tool) successivi all'ultima risposta dell'assistente.
-  Più veloce nelle conversazioni lunghe. La chiave, generata se assente, è
-  sempre restituita nell'header `X-Session-Id` della risposta.
-- I messaggi `system` sono messi in testa al prompt (`system_messages: "prompt"`,
-  default): in una sessione ripresa contano solo quelli del primo turno. Con
-  `append` o `replace` sono passati come system prompt e valgono a ogni turno.
-- Le risposte alle `tool_calls` in modalità `stateful` riprendono il processo
-  in attesa tramite i `tool_call_id`, indipendentemente dalla sessione.
+- **Without `X-Session-Id`** (OpenAI behavior): every request starts a new
+  process; the history sent by the client is turned into a single prompt.
+- **With `X-Session-Id`** (or the `user` field): the same key resumes the CLI
+  session with `--resume`, and the CLI receives only the new messages (user
+  messages and tool results) after the assistant's last answer. Faster in long
+  conversations. The key, generated when missing, is always returned in the
+  `X-Session-Id` response header.
+- `system` messages are placed at the top of the prompt
+  (`system_messages: "prompt"`, default): in a resumed session only those of
+  the first turn count. With `append` or `replace` they are passed as the
+  system prompt and apply to every turn.
+- Answers to `tool_calls` in `stateful` mode resume the waiting process through
+  the `tool_call_id`s, regardless of the session.
 
-## Sviluppo con abbonamento, produzione con API key
+## Development with a subscription, production with an API key
 
-La modalità è scelta solo da configurazione, con la variabile obbligatoria
-`AGENT_BRIDGE_AUTH_MODE`:
+The mode is chosen only by configuration, with the mandatory
+`AGENT_BRIDGE_AUTH_MODE` variable:
 
-| Modalità | Uso | Credenziali |
+| Mode | Use | Credentials |
 | --- | --- | --- |
-| `subscription` | Sviluppo sulla propria macchina | Login fatto con `claude`; `ANTHROPIC_API_KEY` e `ANTHROPIC_AUTH_TOKEN` non devono essere impostate |
-| `api` | Produzione e istanze condivise | `ANTHROPIC_API_KEY` obbligatoria (chiave della Claude Console) |
+| `subscription` | Development on your own machine | Login done with `claude`; `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` must not be set |
+| `api` | Production and shared instances | `ANTHROPIC_API_KEY` required (Claude Console key) |
 
-Il server rifiuta di partire se la modalità e l'ambiente non sono coerenti. In
-modalità `subscription` le variabili di API key vengono comunque rimosse
-dall'ambiente del processo figlio, e se la CLI segnala di usare una API key il
-server registra un errore a ogni turno.
+The server refuses to start if the mode and the environment are inconsistent.
+In `subscription` mode the API key variables are removed from the child
+process environment anyway, and if the CLI reports using an API key the server
+logs an error on every turn.
 
-Ogni turno registra token e costo (log, file `usage_log` opzionale, `/stats`,
-`/metrics`). **In modalità `subscription` il campo `cost_usd` è una stima
-calcolata dalla CLI ai prezzi API, non un addebito**: serve a prevedere quanto
-costerà la produzione con API key.
+Every turn records tokens and cost (logs, optional `usage_log` file, `/stats`,
+`/metrics`). **In `subscription` mode `cost_usd` is an estimate computed by the
+CLI at API prices, not a charge**: it helps forecast what production with an
+API key will cost.
 
-## Uso consentito
+## Permitted use
 
-agent-bridge è uno strumento: chi lo usa resta responsabile del rispetto dei
-termini del proprio piano. In sintesi:
+agent-bridge is a tool: whoever uses it remains responsible for complying with
+the terms of their plan. In short:
 
-1. **Nessun accesso alle credenziali.** Il codice non legge, copia, conserva,
-   logga né inoltra file di credenziali o token. Il login avviene solo con il
-   flusso ufficiale della CLI, e il token dell'abbonamento non viene mai usato
-   per chiamare direttamente l'API.
-2. **Un abbonamento, un utente.** In modalità `subscription` il server deve
-   servire solo il titolare dell'account, sulla propria macchina. La
-   configurazione di default ascolta solo su loopback; l'accesso remoto va
-   abilitato esplicitamente ed è pensato per raggiungere la propria istanza dal
-   proprio portatile (es. VPN personale), non per altri utenti.
-3. **Istanze condivise solo con API key.** Un'istanza usata da più persone
-   (es. un laboratorio o un team) deve girare in modalità `api` con la chiave
-   del titolare, senza rivendita o intermediazione dei costi.
+1. **No access to credentials.** The code never reads, copies, stores, logs or
+   forwards credential files or tokens. Login happens only through the CLI's
+   official flow, and the subscription token is never used to call the API
+   directly.
+2. **One subscription, one user.** In `subscription` mode the server must serve
+   only the account holder, on their own machine. The default configuration
+   listens on loopback only; remote access must be enabled explicitly and is
+   meant for reaching your own instance from your own laptop (e.g. a personal
+   VPN), not for other users.
+3. **Shared instances only with an API key.** An instance used by several
+   people (e.g. a lab or a team) must run in `api` mode with the owner's key,
+   without reselling or brokering costs.
 
-Riferimenti, da ricontrollare perché **le regole possono cambiare**:
+References, to be checked again because **the rules may change**:
 
 - [Claude Code: Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)
 - [Use the Claude Agent SDK with your Claude plan](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)
 
-## Sicurezza
+## Security
 
-Un agente sul server con tool abilitati può leggere, scrivere ed eseguire
-comandi: chi raggiunge il server ha l'equivalente di una shell limitata. Le
-impostazioni di default sono chiuse e ogni apertura è esplicita.
+An agent on the server with tools enabled can read, write and run commands:
+whoever reaches the server has the equivalent of a restricted shell. Defaults
+are closed and every opening is explicit.
 
-- **Rete.** Ascolto di default su `127.0.0.1:8787`. Un indirizzo non loopback
-  richiede `allow_remote: true` (o `-allow-remote`) **e** `AGENT_BRIDGE_API_KEY`.
-  Non c'è TLS integrato: per l'accesso remoto usare un reverse proxy con TLS, un
-  tunnel SSH o una VPN.
-- **Autenticazione dei client.** Con `AGENT_BRIDGE_API_KEY` impostata, `/v1/*`,
-  `/stats` e `/metrics` richiedono `Authorization: Bearer <chiave>` (confronto a
-  tempo costante). `/healthz` e `/readyz` restano aperti.
-- **CORS** disattivato; si abilita con una lista esatta di origini
-  (`cors_origins`), senza caratteri jolly.
-- **Modelli `claude-code/*`** sempre solo chat: nessun tool del server, in
-  qualsiasi modalità.
-- **Funzioni del client** eseguite solo dal client, mai sul server. Le chiamate
-  passano da un broker interno su `127.0.0.1` con porta casuale e un token
-  diverso per ogni turno; i file del turno sono privati e rimossi alla fine.
-- **Override per richiesta** (`X-Agent-Cwd`, `X-Agent-Allowed-Tools`,
-  `X-Agent-System-Prompt`) rifiutati con 403 se non abilitati in `overrides`;
-  possono solo restringere i tool, la cartella deve stare dentro una radice
-  ammessa (anche dopo la risoluzione dei symlink), il system prompt viene solo
-  aggiunto. Mai applicabili ai modelli `claude-code/*`.
-- **`system_messages`.** Con `replace` il system prompt della CLI viene
-  sostituito dai messaggi della richiesta (il `system_prompt` dell'agente
-  resta in testa); i permessi dei tool dell'agente non cambiano.
-- **`bypassPermissions`** è rifiutato a meno di `allow_bypass_permissions: true`,
-  e in quel caso all'avvio compare un avviso per ogni agente interessato.
-- **Log.** A livello `info` e superiori non vengono mai registrati prompt o
-  risposte; a `debug` sono troncati a 500 caratteri. Chiavi `sk-ant-…` e la
-  chiave del bridge vengono sostituite con `[REDACTED]` in log ed errori.
-- **Processi.** Ogni turno è un processo separato, avviato senza shell, con il
-  prompt su stdin. Timeout, disconnessione del client o arresto del server
-  terminano l'intero albero dei processi (process group su Unix, `taskkill /T`
-  su Windows).
+- **Network.** Listens on `127.0.0.1:8787` by default. A non-loopback address
+  requires `allow_remote: true` (or `-allow-remote`) **and**
+  `AGENT_BRIDGE_API_KEY`. There is no built-in TLS: for remote access use a
+  reverse proxy with TLS, an SSH tunnel or a VPN.
+- **Client authentication.** With `AGENT_BRIDGE_API_KEY` set, `/v1/*`, `/stats`
+  and `/metrics` require `Authorization: Bearer <key>` (constant-time
+  comparison). `/healthz` and `/readyz` stay open.
+- **CORS** is disabled; enable it with an exact list of origins
+  (`cors_origins`), no wildcards.
+- **`claude-code/*` models** are always chat-only: no server tools, in any
+  mode.
+- **Client functions** are executed only by the client, never on the server.
+  Calls go through an internal broker on `127.0.0.1` with a random port and a
+  different token for every turn; the turn's files are private and removed at
+  the end.
+- **Per-request overrides** (`X-Agent-Cwd`, `X-Agent-Allowed-Tools`,
+  `X-Agent-System-Prompt`) are rejected with 403 unless enabled in
+  `overrides`; they can only narrow tools, the directory must be inside an
+  allowed root (also after resolving symlinks), and the system prompt is only
+  appended. Never applicable to `claude-code/*` models.
+- **`system_messages`.** With `replace` the CLI system prompt is replaced by
+  the request's messages (the agent's `system_prompt` stays first); the
+  permissions of the agent's tools do not change.
+- **`bypassPermissions`** is rejected unless `allow_bypass_permissions: true`,
+  in which case a warning is printed at startup for every affected agent.
+- **Logs.** At `info` level and above, prompts and answers are never logged;
+  at `debug` they are truncated to 500 characters. `sk-ant-…` keys and the
+  bridge key are replaced with `[REDACTED]` in logs and errors.
+- **Processes.** Every turn is a separate process, started without a shell,
+  with the prompt on stdin. Timeouts, client disconnection or server shutdown
+  terminate the whole process tree (process group on Unix, `taskkill /T` on
+  Windows).
 
-## Riferimento rapido
+## Quick reference
 
-Esempi di client:
+Client examples:
 
-- Go con l'SDK ufficiale: [examples/go](examples/go/main.go)
-- Python con l'SDK ufficiale: [examples/python/client.py](examples/python/client.py)
+- Go with the official SDK: [examples/go](examples/go/main.go)
+- Python with the official SDK: [examples/python/client.py](examples/python/client.py)
 - Python, function calling: [examples/python/tools.py](examples/python/tools.py)
 - curl: [examples/curl.sh](examples/curl.sh)
 
-Endpoint:
+Endpoints:
 
-| Metodo e percorso | Scopo |
+| Method and path | Purpose |
 | --- | --- |
-| `POST /v1/chat/completions` | Esegue un turno (JSON o SSE) |
-| `GET /v1/models`, `GET /v1/models/{id}` | Elenca agenti configurati e alias `claude-code/*` (i nomi `claude-code/<nome modello>` rispondono al dettaglio ma non sono elencati) |
-| `GET /stats` | Statistiche per agente; `?reset=true` le azzera dopo averle restituite |
-| `GET /metrics` | Metriche Prometheus (con `metrics: true`) |
-| `GET /healthz`, `GET /readyz` | Liveness e readiness |
+| `POST /v1/chat/completions` | Runs a turn (JSON or SSE) |
+| `GET /v1/models`, `GET /v1/models/{id}` | Lists configured agents and `claude-code/*` aliases (`claude-code/<model name>` names answer the detail endpoint but are not listed) |
+| `GET /stats` | Per-agent statistics; `?reset=true` resets them after returning them |
+| `GET /metrics` | Prometheus metrics (with `metrics: true`) |
+| `GET /healthz`, `GET /readyz` | Liveness and readiness |
 
-Header di richiesta:
+Request headers:
 
-| Header | Effetto |
+| Header | Effect |
 | --- | --- |
-| `X-Session-Id`, `X-Session-Reset` | Sessione da riprendere o ricominciare |
-| `X-Agent-Bridge-Tool-Mode` | `stateful` o `stateless` per le funzioni del client |
-| `X-Agent-Bridge-System-Mode` | `prompt`, `append` o `replace` per i messaggi `system` |
-| `X-Agent-Cwd`, `X-Agent-Allowed-Tools`, `X-Agent-System-Prompt` | Override, solo se abilitati |
-| `X-Request-Id` | Identificativo riportato nei log e nella risposta |
+| `X-Session-Id`, `X-Session-Reset` | Session to resume or restart |
+| `X-Agent-Bridge-Tool-Mode` | `stateful` or `stateless` for client functions |
+| `X-Agent-Bridge-System-Mode` | `prompt`, `append` or `replace` for `system` messages |
+| `X-Agent-Cwd`, `X-Agent-Allowed-Tools`, `X-Agent-System-Prompt` | Overrides, only if enabled |
+| `X-Request-Id` | Identifier reported in logs and in the response |
 
-Header di risposta: `X-Session-Id`, `X-Request-Id` e, nelle risposte non stream,
+Response headers: `X-Session-Id`, `X-Request-Id` and, in non-stream responses,
 `X-Agent-Bridge-Turns`, `X-Agent-Bridge-Cost-USD`, `X-Agent-Bridge-Duration-Ms`.
 
-Comandi: `agent-bridge serve` (default), `check-config`, `doctor [-live]`,
-`version`; `mcp-tools` è interno, avviato dalla CLI per le funzioni del client.
-`doctor` controlla la CLI e la sua versione, la coerenza della modalità di
-autenticazione e i permessi delle cartelle; con `-live` esegue un turno di
-prova su Haiku.
+Commands: `agent-bridge serve` (default), `check-config`, `doctor [-live]`,
+`version`; `mcp-tools` is internal, started by the CLI for client functions.
+`doctor` checks the CLI and its version, the consistency of the authentication
+mode and directory permissions; with `-live` it runs a test turn on Haiku.
 
-## Limiti noti
+## Known limitations
 
-- I parametri OpenAI `response_format`, `temperature`, `top_p`, `n`, `stop`,
-  `logprobs`, `max_tokens` sono accettati e ignorati.
-- Function calling: `tool_choice` vincolante, `parallel_tool_calls: false` e gli
-  schemi delle funzioni sono istruzioni al modello, non vincoli imposti.
-- Solo contenuto testuale: immagini e audio producono 400 `unsupported_content`.
-- Nessun supporto a `/v1/responses`, `/v1/embeddings`, immagini, audio, né ad
-  altri provider.
-- Prompt fino a 9 MB (la CLI limita stdin a 10 MB).
-- In streaming gli header di risposta `X-Agent-Bridge-Turns`, `-Cost-USD` e
-  `-Duration-Ms` non sono disponibili (gli header partono prima
-  dell'esecuzione); costo e token sono nel log, in `/stats` e nel chunk `usage`
-  se richiesto con `stream_options.include_usage`.
-- In streaming l'avanzamento è inviato come commenti SSE di una riga, senza riga
-  vuota successiva, perché alcuni SDK interpretano una riga vuota dopo un
-  commento come un evento vuoto.
-- Un turno può durare minuti: il modello può lavorare in più passi prima di
-  rispondere.
-- I valori esatti del campo `apiKeySource` dell'evento `init` non sono
-  documentati: il server considera "nessuna API key" solo `none`.
+- The OpenAI parameters `response_format`, `temperature`, `top_p`, `n`, `stop`,
+  `logprobs`, `max_tokens` are accepted and ignored.
+- Function calling: a binding `tool_choice`, `parallel_tool_calls: false` and
+  function schemas are instructions to the model, not enforced constraints.
+- Text content only: images and audio return 400 `unsupported_content`.
+- No support for `/v1/responses`, `/v1/embeddings`, images, audio, or other
+  providers.
+- Prompts up to 9 MB (the CLI limits stdin to 10 MB).
+- When streaming, the `X-Agent-Bridge-Turns`, `-Cost-USD` and `-Duration-Ms`
+  response headers are not available (headers are sent before execution);
+  cost and tokens are in the logs, in `/stats` and in the `usage` chunk when
+  requested with `stream_options.include_usage`.
+- When streaming, progress is sent as single-line SSE comments without a
+  following blank line, because some SDKs treat a blank line after a comment
+  as an empty event.
+- A turn can take minutes: the model may work through several steps before
+  answering.
+- The exact values of the `apiKeySource` field of the `init` event are not
+  documented: the server treats only `none` as "no API key".
 
 ## FAQ
 
-**Supporta i tool?** Sì, di due tipi: le funzioni del client con il function
-calling OpenAI, e i tool dell'agente sul server (file, comandi, ricerca, server
-MCP) per gli agenti configurati. Vedi [Due modi di usarlo](#due-modi-di-usarlo).
+**Does it support tools?** Yes, of two kinds: client functions through OpenAI
+function calling, and agent tools on the server (files, commands, search, MCP
+servers) for configured agents. See [Two ways to use it](#two-ways-to-use-it).
 
-**Devo modificare il mio client OpenAI?** No: cambiare `base_url`
-(`http://127.0.0.1:8787/v1`), `api_key` (la `AGENT_BRIDGE_API_KEY`, o un valore
-qualsiasi se non impostata) e `model`.
+**Do I need to change my OpenAI client?** No: change `base_url`
+(`http://127.0.0.1:8787/v1`), `api_key` (the `AGENT_BRIDGE_API_KEY`, or any
+value if it is not set) and `model`.
 
-**Devo creare un file di configurazione per ogni agente?** No, se gli agenti
-sono definiti nel client: istruzioni in `system`, tool in `tools`, modello
-`claude-code/*`. Il file serve solo per gli agenti che usano i tool del server.
+**Do I need a configuration file for every agent?** No, if agents are defined
+in the client: instructions in `system`, tools in `tools`, a `claude-code/*`
+model. The file is only needed for agents that use the server's tools.
 
-**Il contesto viene duplicato se invio tutta la cronologia?** Senza
-`X-Session-Id` ogni richiesta riparte dalla cronologia completa, come
-un'API senza stato. Con `X-Session-Id` la sessione viene ripresa e la CLI
-riceve solo i messaggi nuovi.
+**Is the context duplicated if I send the whole history?** Without
+`X-Session-Id` every request starts again from the full history, like a
+stateless API. With `X-Session-Id` the session is resumed and the CLI receives
+only the new messages.
 
-**Cosa succede se cambio cartella di lavoro a metà conversazione?** Le sessioni
-della CLI sono legate alla directory di progetto: il server ne avvia una nuova.
+**What happens if I change working directory mid-conversation?** CLI sessions
+are tied to the project directory: the server starts a new one.
 
-**Posso esporre il server in rete?** Solo esplicitamente (`allow_remote` più
-`AGENT_BRIDGE_API_KEY`), dietro TLS, e in modalità `subscription` solo per il
-titolare dell'account. Per più utenti usare la modalità `api`.
+**Can I expose the server on the network?** Only explicitly (`allow_remote`
+plus `AGENT_BRIDGE_API_KEY`), behind TLS, and in `subscription` mode only for
+the account holder. For several users use `api` mode.
 
-**Due richieste sulla stessa sessione?** Vengono serializzate (`on_busy: wait`)
-o la seconda riceve 409 (`on_busy: reject`).
+**Two requests on the same session?** They are serialized (`on_busy: wait`) or
+the second gets 409 (`on_busy: reject`).
 
-## Sviluppo
+## Development
 
-Struttura a livelli con interfacce e implementazioni sostituibili:
-[docs/architecture.md](docs/architecture.md). Specifica tecnica completa,
-aggiornata alla rev. 1.2: [docs/specifiche-tecniche.md](docs/specifiche-tecniche.md).
+Layered structure with interfaces and replaceable implementations:
+[docs/architecture.md](docs/architecture.md). Full technical specification,
+revision 1.2: [docs/specification.md](docs/specification.md).
 
 ```sh
-go test -race ./...          # usa un finto binario della CLI, nessuna credenziale
-./scripts/coverage.sh        # copertura minima dei pacchetti principali
+go test -race ./...          # uses a fake CLI binary, no credentials
+./scripts/coverage.sh        # minimum coverage of the main packages
 ```
 
-La CI non usa mai la CLI reale né credenziali. Le verifiche manuali prima di
-ogni release sono in [docs/release-checklist.md](docs/release-checklist.md).
+CI never uses the real CLI or credentials. Manual checks before every release
+are in [docs/release-checklist.md](docs/release-checklist.md).
