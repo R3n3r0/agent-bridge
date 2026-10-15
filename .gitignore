@@ -1,0 +1,7 @@
+/agent-bridge
+/agent-bridge.exe
+/dist/
+*.test
+*.out
+coverage.*
+sessions.json
