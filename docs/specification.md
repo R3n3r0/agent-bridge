@@ -2,7 +2,7 @@
 
 **English** · [Italiano](specification.it.md)
 
-Oct 15, 2026 · @Someone — **rev. 1.2**: OpenAI function calling (section 13), use from external orchestrators (section 13.8), alignment with the implementation (section 14)
+Oct 15, 2026 · @Someone — **rev. 1.3**: OpenAI function calling (section 13), use from external orchestrators (section 13.8), images (section 15), configurable model prefix and GPL license (section 14)
 
 ## 1. Overview and goals
 
@@ -25,12 +25,13 @@ An agent can use both in the same turn: for example, read repository files with 
 Measurable goals for v1.0:
 
 1. A standard OpenAI client (official Go, Python, Node SDKs) works by changing only `base_url`, `api_key` and `model`.
-2. Zero configuration for basic use: started without a configuration file, the server exposes at least the models `claude-code/opus`, `claude-code/sonnet`, `claude-code/haiku` in chat-only mode.
+2. Zero configuration for basic use: started without a configuration file, the server exposes at least the models `bridge/opus`, `bridge/sonnet`, `bridge/haiku` in chat-only mode.
 3. Configurable agents: a JSON file maps a model name to a Claude model, system prompt, tools, permissions and working directory.
 4. Multi-turn conversations through Claude Code sessions resumed with `--resume`.
 5. Same build for development (login with a Claude subscription) and production (API key), selected by configuration only.
 6. Single binary, Go standard library only, releases for Linux, macOS and Windows (amd64 and arm64).
 7. OpenAI-compatible function calling: the standard loop of the official SDKs (request with `tools`, response with `tool_calls`, next request with the `tool` messages) works with no client changes, including in streaming and without session headers (section 13).
+8. Image input: `image_url` content parts (`data:` and `http(s)` URLs) are accepted with any model (section 15).
 
 Working name: `agent-bridge`. The final name must not contain "Claude Code" or "Anthropic" (see section 2).
 
@@ -42,14 +43,14 @@ The following constraints derive from the [Claude Code Legal and compliance](htt
 2. **No access to credentials.** The code must never read, copy, store, log or forward credential files (`~/.claude/.credentials.json`, macOS Keychain) or OAuth tokens. Login happens only through the official flow (interactive `claude`). Calling the Anthropic API directly with the subscription token is explicitly forbidden.
 3. **One subscription, one user.** In subscription mode the server serves only the account holder on their own machine. With the default configuration it must not be possible to expose it to other users (see section 8, network bind).
 4. **Shared instances only with an API key.** An instance used by several people (e.g. a lab) must run in `api` mode, with the holder's key, without reselling or brokering costs.
-5. **Name and trademarks.** The project name, logo and description do not use "Claude Code" or "Anthropic" as part of the name and do not suggest affiliation. The README may state in plain text that the tool runs Claude Code and must declare that it is an independent project.
+5. **Name and trademarks.** The project name, logo and description do not use "Claude Code" or "Anthropic" as part of the name and do not suggest affiliation. The README may state in plain text that the tool runs Claude Code and must declare that it is an independent project. For the same reason the zero-config model names use a neutral prefix, `bridge/` by default, configurable with `builtin_prefix`.
 6. **README with a "Permitted use" section** that summarizes points 2–4 and links the legal page and the article [Use the Claude Agent SDK with your Claude plan](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan), noting that the rules may change.
 
 Non-goals for v1.0:
 
 - Support for the OpenAI parameters `response_format`, `temperature`, `top_p`, `n`, `stop`, `logprobs`: they are accepted and ignored. (`tools`, `tool_choice`, `parallel_tool_calls`, `functions` and `function_call` are supported instead: section 13.)
 - Hard constraints on `tool_choice`, `parallel_tool_calls: false` and on the functions' `parameters`/`strict` schemas: they are rendered as instructions to the model, not enforced (section 13.6).
-- The `/v1/responses` and `/v1/embeddings` APIs, images, audio.
+- The `/v1/responses` and `/v1/embeddings` APIs, image generation, audio input and output.
 - Non-Claude models: the server does not act as a router to other providers.
 - Prompt injection into an open interactive session (channels): out of scope.
 - Web interface or graphical dashboard.
@@ -106,7 +107,7 @@ Configuration comes from four sources with this precedence: CLI flags > environm
 
 ### 4.3 Configuration file
 
-Top-level keys: `listen`, `allow_remote` (bool, default false), `claude_binary` (default `claude`), `max_concurrent` (default 2), `max_queue` (default 32), `queue_timeout_seconds` (default 300), `shutdown_grace_seconds` (default 30), `stream_progress` (`comments`, `content` or `none`; default `comments`), `usage_log` (JSONL path, optional), `metrics` (bool, default false), `cors_origins` (list, default empty), `allow_bypass_permissions` (bool, default false), `builtin_models` (bool, default true), `builtin_any_model` (bool, default true, section 13.8), `system_messages` (`prompt`, `append` or `replace`; default `prompt`, section 13.8), `client_tools` (section 13.7), `defaults` (`timeout_seconds` default 1800, `max_turns` default 0 = unlimited), `sessions` (section 6), `overrides` (section 8), `agents`.
+Top-level keys: `listen`, `allow_remote` (bool, default false), `claude_binary` (default `claude`), `max_concurrent` (default 2), `max_queue` (default 32), `queue_timeout_seconds` (default 300), `shutdown_grace_seconds` (default 30), `stream_progress` (`comments`, `content` or `none`; default `comments`), `usage_log` (JSONL path, optional), `metrics` (bool, default false), `cors_origins` (list, default empty), `allow_bypass_permissions` (bool, default false), `builtin_models` (bool, default true), `builtin_prefix` (default `bridge/`, section 4.4), `builtin_any_model` (bool, default true, section 13.8), `system_messages` (`prompt`, `append` or `replace`; default `prompt`, section 13.8), `client_tools` (section 13.7), `images` (section 15), `defaults` (`timeout_seconds` default 1800, `max_turns` default 0 = unlimited), `sessions` (section 6), `overrides` (section 8), `agents`.
 
 Fields of each agent in `agents` (the key is the name exposed as `model`; allowed characters `[a-zA-Z0-9._/-]`, at most 64):
 
@@ -130,7 +131,7 @@ Validation at startup, with an error that names the agent and the field: invalid
 
 ### 4.4 Built-in models (zero-config)
 
-With `builtin_models: true` the server registers `claude-code/opus`, `claude-code/sonnet` and `claude-code/haiku`: server tools disabled, `cwd` in an empty temporary directory created at startup and removed at shutdown, no additional system prompt. They accept client functions (section 13). With `builtin_any_model: true`, `claude-code/<model>` is also accepted for any model name (section 13.8). They serve as plain models for clients and orchestrators that define their agents themselves, and for trying out the server without configuration.
+With `builtin_models: true` the server registers `bridge/opus`, `bridge/sonnet` and `bridge/haiku` (the `bridge/` prefix is the `builtin_prefix` setting: 1-32 characters `[a-zA-Z0-9._-]` followed by `/`): server tools disabled, `cwd` in an empty temporary directory created at startup and removed at shutdown, no additional system prompt. They accept client functions (section 13). With `builtin_any_model: true`, `bridge/<model>` is also accepted for any model name (section 13.8). They serve as plain models for clients and orchestrators that define their agents themselves, and for trying out the server without configuration.
 
 ## 5. HTTP API
 
@@ -148,7 +149,7 @@ The server implements the subset of the OpenAI Chat Completions API required by 
 
 ### 5.1 `POST /v1/chat/completions` request
 
-Fields used: `model` (required, agent name or `claude-code/<model>`), `messages` (required, at least one `user` message; after the last `assistant` message there must be at least one `user` or `tool` message), `stream` (bool), `stream_options.include_usage` (bool), `user` (string, used as a fallback session key), `tools`, `tool_choice`, `parallel_tool_calls`, `functions`, `function_call` (section 13), `max_completion_tokens` / `max_tokens` (ignored, but accepted). Accepted roles: `system`, `developer`, `user`, `assistant` (also with `tool_calls` or `function_call` and null `content`), `tool` (with `tool_call_id`), `function` (deprecated, treated as `tool`). `content` can be a string, null or an array of parts; only `type: "text"` parts are used, the others (images, audio) produce 400 `unsupported_content` in v1.0. Any other field is ignored without error. Maximum body size 10 MB.
+Fields used: `model` (required, agent name or `bridge/<model>`), `messages` (required, at least one `user` message; after the last `assistant` message there must be at least one `user` or `tool` message), `stream` (bool), `stream_options.include_usage` (bool), `user` (string, used as a fallback session key), `tools`, `tool_choice`, `parallel_tool_calls`, `functions`, `function_call` (section 13), `max_completion_tokens` / `max_tokens` (ignored, but accepted). Accepted roles: `system`, `developer`, `user`, `assistant` (also with `tool_calls` or `function_call` and null `content`), `tool` (with `tool_call_id`), `function` (deprecated, treated as `tool`). `content` can be a string, null or an array of parts; `type: "text"` and `type: "image_url"` parts are used (images: section 15), the others (audio, files) produce 400 `unsupported_content`. Any other field is ignored without error. Maximum body size 10 MB.
 
 Optional incoming headers:
 
@@ -186,10 +187,10 @@ OpenAI format: `{"error": {"message", "type", "code"}}`, with `type` and `code` 
 | HTTP | `type` / `code` | When |
 | --- | --- | --- |
 | 400 | `invalid_request_error` | Invalid JSON, empty `messages`, no `user` message, no `user`/`tool` message after the last `assistant`, invalid headers, invalid functions (section 13.2) |
-| 400 | `unsupported_content` | Non-text content parts |
+| 400 | `unsupported_content` | Content parts other than text and `image_url`; images when `images.enabled` is `false` |
 | 401 | `authentication_error` | Missing or wrong Bearer key |
 | 403 | `override_not_allowed` | Per-request override not enabled or out of bounds |
-| 404 | `model_not_found` | Nonexistent agent or invalid `claude-code/<model>` name |
+| 404 | `model_not_found` | Nonexistent agent or invalid `bridge/<model>` name |
 | 409 | `session_busy` | Only if `sessions.on_busy: "reject"` and the session is in use |
 | 429 | `queue_full` | Wait queue full or wait expired (section 7.5), with a `Retry-After` header |
 | 502 | `claude_code_error` | Process exited with an error, outcome other than `success`/`error_max_turns`, unparseable output |
@@ -265,7 +266,7 @@ Each turn is a separate `claude` process, started with `os/exec` without a shell
 
 ### 7.1 Arguments
 
-Fixed order: `-p`, `--output-format stream-json`, `--verbose`, then only the flags for fields that are set: `--model`, `--append-system-prompt` or `--system-prompt` (with the agent's system prompt, the request's `system` messages if `system_messages` is `append`/`replace`, and the instructions derived from `tool_choice`), `--tools ""` (chat-only), `--allowedTools` (entries joined by commas, plus `mcp__functions` if there are client functions), `--disallowedTools`, `--permission-mode`, `--max-turns`, `--add-dir` (repeated), the agent's `--mcp-config`, the client functions' `--mcp-config` (section 13), `--resume`. No positional arguments: the prompt goes on stdin.
+Fixed order: `-p`, `--output-format stream-json`, `--verbose`, `--input-format stream-json` (only when the request has images, section 15), then only the flags for fields that are set: `--model`, `--append-system-prompt` or `--system-prompt` (with the agent's system prompt, the request's `system` messages if `system_messages` is `append`/`replace`, and the instructions derived from `tool_choice`), `--tools ""` (chat-only), `--allowedTools` (entries joined by commas, plus `mcp__functions` if there are client functions), `--disallowedTools`, `--permission-mode`, `--max-turns`, `--add-dir` (repeated), the agent's `--mcp-config`, the client functions' `--mcp-config` (section 13), `--resume`. No positional arguments: the prompt goes on stdin.
 
 Before v1.0, each flag must be checked against the [CLI documentation](https://code.claude.com/docs/en/cli-reference) for the minimum supported version, which `doctor` checks with `claude --version`. The minimum version is a constant in the code, documented in the README.
 
@@ -336,7 +337,7 @@ The `X-Agent-*` headers are rejected with 403 unless they are enabled in the `ov
 | `allow_tools` | false | `X-Agent-Allowed-Tools` (comma-separated list) can only narrow the agent's `allowed_tools`, never add to them |
 | `allow_system_prompt` | false | `X-Agent-System-Prompt` (at most 16 KB, base64-encoded) is appended after the agent's, never replacing it |
 
-Overrides never apply to `claude-code/*` models (aliases and arbitrary models).
+Overrides never apply to `bridge/*` models (aliases and arbitrary models).
 
 ### 8.4 Dangerous permissions
 
@@ -388,6 +389,7 @@ internal/runner/         CLI arguments, environment, event parsing, Executor, Li
 internal/prompt/         prompt construction (section 6.4)
 internal/session/        Store (memory, file) and Locker
 internal/tools/          client functions: broker, MCP server, definitions (section 13)
+internal/media/          images: data: URLs, downloads with address checks, format detection (section 15)
 internal/server/         HTTP handlers, OpenAI types, SSE, errors, Bearer auth
 internal/stats/          counters, usage file, /metrics
 internal/redact/         redaction of secrets in logs and errors
@@ -408,7 +410,7 @@ GoReleaser on `v*` tags: binaries for linux, darwin and windows on amd64 and arm
 
 The main documentation is in English (`README.md`, `docs/*.md`), with an Italian version of each document in `*.it.md` (`README.it.md`, `docs/*.it.md`). The README contains, in this order: what it does (with a declaration that it is an independent project), the two ways of using it (as a model and as an agent on the server) and the two kinds of tools, a quick start in three commands, use as a model from external orchestrators, function calling, agents on the server, conversations and sessions, development with a subscription and production with an API key, the "Permitted use" section (section 2), security (section 8), quick reference (examples, endpoints, headers, commands), known limitations, FAQ. Full configuration reference in `docs/configuration.md`.
 
-Open decisions for the repository owner: license (MIT or Apache-2.0), final name, official Docker image (`api` mode only, can be deferred to v1.1).
+License: GNU GPL v3 or later (`LICENSE`). Open decisions for the repository owner: final repository name (it must not contain "Claude" or "Anthropic", section 2), official Docker image (`api` mode only).
 
 ## 11. Tests and acceptance criteria
 
@@ -441,7 +443,8 @@ Go program in `testdata/fakecli`, compiled by the tests into a temporary directo
 6. Sessions: TTL, LRU, file persistence and reload, atomic write, `X-Session-Reset`.
 7. Redaction: `sk-ant-` keys and the proxy key in logs and errors.
 8. Client functions: validation of `tools`/`tool_choice`/`functions`, rendering of calls and results in the prompt, arguments and environment with functions (also in chat-only), MCP protocol (`initialize`, `tools/list`, `tools/call`, errors), broker (token, deregistration), `turn` service with fakes of the interfaces: single call, parallel, sequential with `parallel_tool_calls: false`, missing result, wait timeout and restart from the history, `tool_choice`.
-9. External orchestrators: `system_messages` (`prompt`, `append`, `replace`, with and without the agent's system prompt), `stateless` mode (process closed, `tool_calls` outcome, session deleted, next step from the history), resolution of `claude-code/<model>` and invalid names.
+9. External orchestrators: `system_messages` (`prompt`, `append`, `replace`, with and without the agent's system prompt), `stateless` mode (process closed, `tool_calls` outcome, session deleted, next step from the history), resolution of `bridge/<model>` and invalid names.
+10. Images: `image_url` parsing and `[image N]` placeholders (new and resumed sessions), stream-json user message with image blocks, `data:` URLs, format detection, size and count limits, refusal of non-public addresses, downloads, `images.enabled: false`.
 
 ### 11.3 Integration tests (with `httptest` and `fakecli`)
 
@@ -455,7 +458,8 @@ Go program in `testdata/fakecli`, compiled by the tests into a temporary directo
 8. Non-loopback bind without `allow_remote` or without a key: the server does not start.
 9. Function calling with the official `openai-go` client, with no changes to the standard loop: `tool_calls` response, next request with `ToolMessage`, final response; the same in streaming with `ChatCompletionAccumulator`. A single process per conversation.
 10. Function calling over HTTP: parallel calls in a single response with `content: null`, streaming with `delta.tool_calls`, deprecated `functions` format, results arriving after the wait timeout (new process with the full history).
-11. External orchestrators over HTTP: `X-Agent-Bridge-Tool-Mode: stateless` header and `client_tools.mode` key, `X-Agent-Bridge-System-Mode` header and `system_messages` key, `claude-code/<model>` model in the request and in `GET /v1/models/{id}`.
+11. External orchestrators over HTTP: `X-Agent-Bridge-Tool-Mode: stateless` header and `client_tools.mode` key, `X-Agent-Bridge-System-Mode` header and `system_messages` key, `bridge/<model>` model in the request and in `GET /v1/models/{id}`.
+12. Images over HTTP: `data:` and `http(s)` URLs in non-stream and stream requests, errors before any process starts, limits, official `openai-go` client with `ImageContentPart`.
 
 ### 11.4 Manual verification before each release
 
@@ -500,8 +504,11 @@ The work is divided into five milestones, each releasable as a preview version; 
 | 27 | M6 Function calling (v1.1) | Tests with `openai-go`, `tools` scenario of the fake binary, checklist | 11 | 26 |
 | 28 | M7 External orchestrators (v1.2) | Functions in `stateless` mode | 13.8 | 25 |
 | 29 | M7 External orchestrators (v1.2) | `system_messages` and `X-Agent-Bridge-System-Mode` header | 13.8, 6.4 | 23 |
-| 30 | M7 External orchestrators (v1.2) | `claude-code/<model>` models | 13.8, 4.4 | 3 |
+| 30 | M7 External orchestrators (v1.2) | `bridge/<model>` models | 13.8, 4.4 | 3 |
 | 31 | M7 External orchestrators (v1.2) | Documentation in English and Italian | 10.4 | 28–30 |
+| 32 | M8 Images and publication (v1.3) | `image_url` input, `images` settings, `media.Resolver` | 15 | 6 |
+| 33 | M8 Images and publication (v1.3) | Configurable model prefix, neutral default | 2, 4.4 | 3 |
+| 34 | M8 Images and publication (v1.3) | GPL v3 license | 10.4 | — |
 
 For implementers (a person or an agent on GitHub): each PR closes a single issue, includes the section 11 tests that concern it and introduces no runtime dependencies. When in doubt about the behavior of the Claude Code CLI, the official documentation prevails, and the discrepancy must be reported in the PR.
 
@@ -574,7 +581,7 @@ When agents, graph and lifecycle are managed by an external platform (for exampl
 
 1. **Functions in stateless mode** (`client_tools.mode: "stateless"` or header `X-Agent-Bridge-Tool-Mode: stateless`). Once the `tool_calls` are returned, the process is closed. The next request starts a new process with the history sent by the client (section 6.4), which remains the only source of truth: branching, retries, history edits and graph checkpoints are respected. The turn is recorded with outcome `tool_calls` and the tokens of the last message. Any associated session is deleted, because it ends with calls lacking results and must not be resumed. Parallel calls remain supported. Cost: one process per step, with the startup latency and less cache reuse.
 2. **`system` messages as the system prompt** (`system_messages` or header `X-Agent-Bridge-System-Mode`). With `replace` the request's `system`/`developer` messages become the system prompt (`--system-prompt`) in place of the CLI's; with `append` they are added to it (`--append-system-prompt`). The system prompt configured in the agent, if any, stays first. The messages are applied on every turn, including in resumed sessions, and do not appear in the prompt.
-3. **Any model** (`builtin_any_model`, default `true`). In addition to the three aliases, a name `claude-code/<model>` with `<model>` of 1-100 characters `[a-zA-Z0-9._[]-]` (the first alphanumeric) creates on the fly a chat-only agent that passes `<model>` to `--model`. Configured agents take precedence. `GET /v1/models` lists only agents and aliases; `GET /v1/models/{id}` also responds for these names.
+3. **Any model** (`builtin_any_model`, default `true`). In addition to the three aliases, a name `bridge/<model>` with `<model>` of 1-100 characters `[a-zA-Z0-9._[]-]` (the first alphanumeric) creates on the fly a chat-only agent that passes `<model>` to `--model`. Configured agents take precedence. `GET /v1/models` lists only agents and aliases; `GET /v1/models/{id}` also responds for these names.
 
 Recommended configuration for this scenario: `{"client_tools": {"mode": "stateless"}, "system_messages": "replace"}` and no `X-Session-Id`.
 
@@ -595,3 +602,29 @@ Recommended configuration for this scenario: `{"client_tools": {"mode": "statele
 | Session registry | IDs and metadata | Also a fingerprint (hash) of the first turn's `system` messages | Debugging `system` changes (6.4), without storing their text |
 | Sessions without a key | Implicit | Each request without a key is a new session with the full history (6) | Clarify the stateless behavior |
 | Documentation | Italian | English main, Italian in `*.it.md` (10.4) | International audience |
+| Model prefix | `claude-code/` | `bridge/`, configurable with `builtin_prefix` (4.4) | Product names must not use the "Claude Code" name (section 2) |
+| Images | Rejected (400) | Accepted as `image_url` parts (15) | Parity with OpenAI clients |
+| License | To be decided | GNU GPL v3 or later (10.4) | Owner's decision |
+
+## 15. Images
+
+Messages can contain `image_url` content parts, as in the OpenAI API, with any model, including chat-only ones: images go to the model, not to files on the server.
+
+### 15.1 Sources and validation
+
+- `data:` URLs with base64 payload; `http(s)` URLs downloaded by the server when `images.fetch_urls` is `true` (default).
+- Downloads refuse non-public addresses (loopback, private, link-local, shared 100.64/10, multicast, unspecified) unless `images.allow_private_networks` is `true`. The check runs in the dialer on the resolved address of every connection, redirects included, so DNS tricks and redirects to internal hosts are blocked. In that mode downloads ignore `HTTP(S)_PROXY`, which would hide the real destination. Redirects only to `http`/`https`, at most 5.
+- Format detected from the bytes, not from the declared type: PNG, JPEG, GIF, WebP. Size up to `images.max_bytes` (default 5 MB) each, at most `images.max_count` (default 20) per request; download timeout `images.fetch_timeout_seconds` (default 20).
+- Every problem returns 400 `invalid_request_error` naming the image ("image 2: …") before any process starts. With `images.enabled: false` requests with images get 400 `unsupported_content`.
+
+### 15.2 Prompt and CLI input
+
+- In the prompt text (section 6.4) every image becomes a numbered placeholder `[image N]` in the position where it appeared; numbering follows the order of the built prompt.
+- With images, the bridge passes `--input-format stream-json` and writes a single stream-json user message on stdin: one text block with the prompt, then for each image a text block `[image N]` and an image block `{"type":"image","source":{"type":"base64","media_type":…,"data":…}}`. Without images stdin stays plain text, as in section 6.4.
+- The whole stdin line, base64 included, must stay within 9 MB (section 6.4).
+- New session: the images of the whole history are sent. Resumed session: only those of the new messages, numbered from 1.
+- `detail` is accepted and ignored. Images in the parked-turn resume of section 13.4 (tool results) are not sent.
+
+### 15.3 To verify on the real CLI (checklist 11.4)
+
+The exact stream-json input format for image blocks, the stdin limit with structured input, and the behavior with `--resume`.

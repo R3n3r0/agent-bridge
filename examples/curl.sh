@@ -10,13 +10,13 @@ echo
 # First turn: the response header X-Session-Id identifies the conversation.
 curl -s -i "$URL/v1/chat/completions" -H "$AUTH" -H 'Content-Type: application/json' \
   -H 'X-Session-Id: curl-demo' \
-  -d '{"model":"claude-code/haiku","messages":[{"role":"user","content":"Pick a number between 1 and 10."}]}'
+  -d '{"model":"bridge/haiku","messages":[{"role":"user","content":"Pick a number between 1 and 10."}]}'
 echo
 
 # Second turn on the same session, streamed.
 curl -s -N "$URL/v1/chat/completions" -H "$AUTH" -H 'Content-Type: application/json' \
   -H 'X-Session-Id: curl-demo' \
-  -d '{"model":"claude-code/haiku","stream":true,"messages":[
+  -d '{"model":"bridge/haiku","stream":true,"messages":[
         {"role":"user","content":"Pick a number between 1 and 10."},
         {"role":"assistant","content":"7"},
         {"role":"user","content":"Which number did you pick?"}]}'

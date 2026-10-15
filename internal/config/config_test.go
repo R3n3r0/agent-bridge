@@ -48,6 +48,9 @@ func TestDefaults(t *testing.T) {
 	if !cfg.BuiltinAnyModel || cfg.SystemMessages != SystemAsPrompt || cfg.ClientTools.Mode != ToolModeStateful {
 		t.Fatalf("defaults: %+v", cfg)
 	}
+	if im := cfg.Images; !im.Enabled || !im.FetchURLs || im.AllowPrivateNetworks || im.MaxBytes != 5<<20 || im.MaxCount != 20 || im.FetchTimeoutSeconds != 20 {
+		t.Fatalf("images defaults: %+v", im)
+	}
 	if !cfg.ClientTools.Enabled || cfg.ClientTools.WaitTimeoutSeconds != 600 || cfg.ClientTools.BatchWindowMs != 300 {
 		t.Fatalf("client_tools defaults: %+v", cfg.ClientTools)
 	}
@@ -57,14 +60,15 @@ func TestDefaults(t *testing.T) {
 	if len(cfg.Agents) != 3 {
 		t.Fatalf("want 3 built-in models, got %d", len(cfg.Agents))
 	}
-	for name, model := range BuiltinModels {
+	for _, model := range BuiltinAliases {
+		name := "bridge/" + model
 		a := cfg.Agents[name]
 		if a == nil || !a.Builtin || a.ToolsEnabled || a.Model != model || a.Cwd != "" || a.SystemPrompt != "" {
 			t.Fatalf("bad built-in %s: %+v", name, a)
 		}
 	}
 	cfg.SetScratchDir("/tmp/x")
-	if cfg.Agents["claude-code/haiku"].Cwd != "/tmp/x" {
+	if cfg.Agents["bridge/haiku"].Cwd != "/tmp/x" {
 		t.Fatal("scratch dir not assigned")
 	}
 	if !strings.HasSuffix(cfg.Sessions.Path, DefaultSessionsFile) {
@@ -151,7 +155,7 @@ func TestValidationErrors(t *testing.T) {
 	}{
 		{"bad name", `{"agents":{"bad name!":{"tools_enabled":false}}}`, `agent "bad name!": name`},
 		{"long name", `{"agents":{"` + strings.Repeat("a", 65) + `":{"tools_enabled":false}}}`, "name"},
-		{"builtin conflict", `{"agents":{"claude-code/opus":{"tools_enabled":false}}}`, "conflicts with a built-in"},
+		{"builtin conflict", `{"agents":{"bridge/opus":{"tools_enabled":false}}}`, "conflicts with a built-in"},
 		{"missing cwd", `{"agents":{"a":{}}}`, `agent "a": cwd: is required`},
 		{"cwd not found", `{"agents":{"a":{"cwd":"nope"}}}`, `agent "a": cwd`},
 		{"cwd is file", `{"agents":{"a":{"cwd":"afile"}}}`, "is not a directory"},
@@ -168,6 +172,10 @@ func TestValidationErrors(t *testing.T) {
 		{"stream progress", `{"stream_progress":"all"}`, "stream_progress"},
 		{"session store", `{"sessions":{"store":"redis"}}`, "sessions.store"},
 		{"on busy", `{"sessions":{"on_busy":"drop"}}`, "sessions.on_busy"},
+		{"image bytes", `{"images":{"max_bytes":-1}}`, "images.max_bytes"},
+		{"image count", `{"images":{"max_count":-1}}`, "images.max_count"},
+		{"builtin prefix", `{"builtin_prefix":"no-slash"}`, "builtin_prefix"},
+		{"builtin prefix chars", `{"builtin_prefix":"a b/"}`, "builtin_prefix"},
 		{"cors wildcard", `{"cors_origins":["*"]}`, "cors_origins"},
 		{"root missing", `{"overrides":{"allowed_roots":["missing"]}}`, "overrides.allowed_roots"},
 		{"root is file", `{"overrides":{"allowed_roots":["afile"]}}`, "overrides.allowed_roots"},
@@ -199,12 +207,12 @@ func TestValidationErrors(t *testing.T) {
 func TestBypassAllowedAndBuiltinsDisabled(t *testing.T) {
 	dir := t.TempDir()
 	p := writeConfig(t, dir, `{"allow_bypass_permissions":true,"builtin_models":false,
-		"agents":{"claude-code/opus":{"tools_enabled":false,"permission_mode":"bypassPermissions"}}}`)
+		"agents":{"bridge/opus":{"tools_enabled":false,"permission_mode":"bypassPermissions"}}}`)
 	cfg, err := Load(flags(t, "-config", p), env(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Agents) != 1 || cfg.Agents["claude-code/opus"].Builtin {
+	if len(cfg.Agents) != 1 || cfg.Agents["bridge/opus"].Builtin {
 		t.Fatalf("agents: %+v", cfg.Agents)
 	}
 }
@@ -300,24 +308,50 @@ func TestAgentLookupAnyModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.SetScratchDir("/scratch")
-	a, ok := cfg.Agent("claude-code/opus")
+	a, ok := cfg.Agent("bridge/opus")
 	if !ok || a.Model != "opus" {
 		t.Fatalf("builtin %+v", a)
 	}
-	a, ok = cfg.Agent("claude-code/claude-model-x-1[1m]")
+	a, ok = cfg.Agent("bridge/claude-model-x-1[1m]")
 	if !ok || a.Model != "claude-model-x-1[1m]" || a.ToolsEnabled || !a.Builtin || a.Cwd != "/scratch" {
 		t.Fatalf("any model %+v", a)
 	}
-	for _, bad := range []string{"other/opus", "claude-code/", "claude-code/-x", "claude-code/a b", "claude-code/a/b"} {
+	for _, bad := range []string{"other/opus", "bridge/", "bridge/-x", "bridge/a b", "bridge/a/b"} {
 		if _, ok := cfg.Agent(bad); ok {
 			t.Errorf("%q accepted", bad)
 		}
 	}
 	cfg.BuiltinAnyModel = false
-	if _, ok := cfg.Agent("claude-code/model-x"); ok {
+	if _, ok := cfg.Agent("bridge/model-x"); ok {
 		t.Fatal("any model disabled but accepted")
 	}
-	if _, ok := cfg.Agent("claude-code/haiku"); !ok {
+	if _, ok := cfg.Agent("bridge/haiku"); !ok {
 		t.Fatal("builtins must stay available")
+	}
+}
+
+func TestCustomBuiltinPrefix(t *testing.T) {
+	dir := t.TempDir()
+	p := writeConfig(t, dir, `{"builtin_prefix":"cc/","agents":{"bridge/opus":{"tools_enabled":false}}}`)
+	cfg, err := Load(flags(t, "-config", p), env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, ok := cfg.Agent("cc/opus"); !ok || !a.Builtin || a.Model != "opus" {
+		t.Fatalf("cc/opus: %+v", a)
+	}
+	if a, ok := cfg.Agent("cc/model-x"); !ok || a.Model != "model-x" {
+		t.Fatalf("cc/model-x: %+v", a)
+	}
+	// With another prefix, "bridge/opus" is an ordinary agent name.
+	if a, ok := cfg.Agent("bridge/opus"); !ok || a.Builtin {
+		t.Fatalf("bridge/opus: %+v", a)
+	}
+	if _, ok := cfg.Agent("bridge/model-x"); ok {
+		t.Fatal("old prefix still accepted")
+	}
+	p = writeConfig(t, dir, `{"builtin_prefix":"cc/","agents":{"cc/haiku":{"tools_enabled":false}}}`)
+	if _, err := Load(flags(t, "-config", p), env(nil)); err == nil || !strings.Contains(err.Error(), "conflicts with a built-in") {
+		t.Fatalf("conflict not detected: %v", err)
 	}
 }

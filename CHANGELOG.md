@@ -2,10 +2,10 @@
 
 ## Unreleased
 
-First complete implementation of the specification ([docs/specification.md](docs/specification.md), rev. 1.2):
+First complete implementation of the specification ([docs/specification.md](docs/specification.md), rev. 1.3):
 
 - OpenAI-compatible API: `POST /v1/chat/completions` (JSON and SSE), `GET /v1/models`, `GET /v1/models/{id}`.
-- Chat-only built-in models (`claude-code/opus`, `claude-code/sonnet`, `claude-code/haiku`, `claude-code/<model>`)
+- Chat-only built-in models (`bridge/opus`, `bridge/sonnet`, `bridge/haiku`, `bridge/<model>`)
   and agents configured from a JSON file.
 - Multi-turn sessions with resume, in-memory or file store, TTL, LRU, per-session serialization.
 - Queue with a concurrency limit, timeouts, process-tree termination on Unix and Windows.
@@ -17,7 +17,11 @@ First complete implementation of the specification ([docs/specification.md](docs
   offered to the CLI through an internal MCP server (`agent-bridge mcp-tools`).
 - Use from external orchestrators: stateless client functions (`client_tools.mode`, header
   `X-Agent-Bridge-Tool-Mode`), `system` messages as the system prompt (`system_messages`, header
-  `X-Agent-Bridge-System-Mode`), any model as `claude-code/<model>` (`builtin_any_model`).
+  `X-Agent-Bridge-System-Mode`), any model as `bridge/<model>` (`builtin_any_model`).
 - Layered structure with interfaces (`turn.Service`, `session.Store`/`Locker`, `runner.Executor`/`Limiter`,
   `stats.Recorder`/`Reporter`/`UsageSink`, `tools.Broker`).
+- Image input: `image_url` parts with `data:` and `http(s)` URLs, sent to the CLI as image blocks; downloads
+  refuse non-public addresses; `images` settings.
+- Neutral, configurable prefix for zero-config models (`builtin_prefix`, default `bridge/`).
 - Documentation in English, with an Italian version of every document (`*.it.md`).
+- Licensed under the GNU GPL v3 or later.

@@ -42,7 +42,7 @@ func TestParseErrors(t *testing.T) {
 		{"empty", nil, ErrNoMessages},
 		{"no user", []RawMessage{raw("system", "x")}, ErrNoUserMessage},
 		{"bad role", []RawMessage{raw("robot", "x")}, ErrInvalidRole},
-		{"image", []RawMessage{raw("user", []map[string]any{{"type": "image_url", "image_url": map[string]string{"url": "x"}}})}, ErrUnsupportedContent},
+		{"file", []RawMessage{raw("user", []map[string]any{{"type": "file", "file": map[string]string{"file_id": "x"}}})}, ErrUnsupportedContent},
 		{"audio", []RawMessage{raw("user", []map[string]any{{"type": "text", "text": "hi"}, {"type": "input_audio"}})}, ErrUnsupportedContent},
 	}
 	for _, c := range cases {
@@ -248,5 +248,53 @@ func TestBuildOmitInstructions(t *testing.T) {
 	got, _ = BuildWith(msgs, Options{OmitInstructions: true, Resumed: true})
 	if got != "q2" {
 		t.Fatalf("resumed %q", got)
+	}
+}
+
+func img(url string) map[string]any {
+	return map[string]any{"type": "image_url", "image_url": map[string]string{"url": url, "detail": "auto"}}
+}
+
+func txt(t string) map[string]any { return map[string]any{"type": "text", "text": t} }
+
+func TestImages(t *testing.T) {
+	if _, err := Parse([]RawMessage{raw("user", []map[string]any{{"type": "image_url"}})}); err == nil {
+		t.Fatal("image_url without url accepted")
+	}
+	msgs := mustParse(t,
+		raw("user", []map[string]any{txt("what is this?"), img("data:image/png;base64,AAA")}),
+		raw("assistant", "a cat"),
+		raw("user", []map[string]any{img("https://example.com/b.jpg"), txt("and this?"), img("data:image/gif;base64,BBB")}),
+	)
+	if msgs[0].Text != "what is this?" || len(msgs[0].Parts) != 2 || CountImages(msgs) != 3 {
+		t.Fatalf("parsed %+v", msgs)
+	}
+	p, err := BuildPrompt(msgs, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Images) != 3 || p.Images[0] != "data:image/png;base64,AAA" || p.Images[1] != "https://example.com/b.jpg" {
+		t.Fatalf("images %v", p.Images)
+	}
+	if !strings.Contains(p.Text, "<user>what is this?\n[image 1]</user>") ||
+		!strings.Contains(p.Text, "<current_request>\n[image 2]\nand this?\n[image 3]\n</current_request>") {
+		t.Fatalf("text %q", p.Text)
+	}
+	// Resumed: only the new images, numbered from 1.
+	p, _ = BuildPrompt(msgs, Options{Resumed: true})
+	if p.Text != "[image 1]\nand this?\n[image 2]" || len(p.Images) != 2 || p.Images[1] != "data:image/gif;base64,BBB" {
+		t.Fatalf("resumed %+v", p)
+	}
+	// Single message with an image.
+	p, _ = BuildPrompt(mustParse(t, raw("user", []map[string]any{img("data:x"), txt("describe")})), Options{})
+	if p.Text != "[image 1]\ndescribe" || len(p.Images) != 1 {
+		t.Fatalf("single %+v", p)
+	}
+	// Text-only arrays keep no parts.
+	if m := mustParse(t, raw("user", []map[string]any{txt("a"), txt("b")})); m[0].Parts != nil {
+		t.Fatal("parts kept without images")
+	}
+	if text, _ := BuildWith(msgs, Options{Resumed: true}); text != "[image 1]\nand this?\n[image 2]" {
+		t.Fatalf("BuildWith %q", text)
 	}
 }

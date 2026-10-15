@@ -23,12 +23,12 @@ func TestModels(t *testing.T) {
 			t.Fatalf("model %+v", m)
 		}
 	}
-	want := "chat,coder,claude-code/haiku,claude-code/opus,claude-code/sonnet"
+	want := "chat,coder,bridge/haiku,bridge/opus,bridge/sonnet"
 	if list.Object != "list" || strings.Join(ids, ",") != want {
 		t.Fatalf("ids %v", ids)
 	}
-	m := decode[modelObject](t, h.get("/v1/models/claude-code/opus", nil))
-	if m.ID != "claude-code/opus" || m.Description == "" {
+	m := decode[modelObject](t, h.get("/v1/models/bridge/opus", nil))
+	if m.ID != "bridge/opus" || m.Description == "" {
 		t.Fatalf("model %+v", m)
 	}
 	expectError(t, h.get("/v1/models/missing", nil), 404, errModelNotFound)

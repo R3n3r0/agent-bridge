@@ -18,8 +18,8 @@ Annotare versione della CLI, sistema operativo ed esito di ogni voce.
 Ambiente senza `ANTHROPIC_API_KEY` né `ANTHROPIC_AUTH_TOKEN`, login fatto con la CLI.
 
 - [ ] `agent-bridge doctor -live` termina con codice 0.
-- [ ] Richiesta non-stream a `claude-code/haiku`: 200, `usage` valorizzato.
-- [ ] Richiesta stream a `claude-code/sonnet` con `include_usage`: sequenza SSE completa, `[DONE]`.
+- [ ] Richiesta non-stream a `bridge/haiku`: 200, `usage` valorizzato.
+- [ ] Richiesta stream a `bridge/sonnet` con `include_usage`: sequenza SSE completa, `[DONE]`.
 - [ ] Il log del turno non riporta errori sulla fonte delle credenziali.
 - [ ] Modello built-in a cui si chiede di leggere un file: nessun tool usato (log `debug`).
 - [ ] Agente con tool che modifica un file in un repository di prova: modifica presente su disco.
@@ -29,14 +29,22 @@ Ambiente senza `ANTHROPIC_API_KEY` né `ANTHROPIC_AUTH_TOKEN`, login fatto con l
 
 ## Function calling
 
-- [ ] Ciclo completo con `examples/python/tools.py` su `claude-code/sonnet`: i tool MCP del client sono disponibili anche con `--tools ""` (modelli solo chat).
+- [ ] Ciclo completo con `examples/python/tools.py` su `bridge/sonnet`: i tool MCP del client sono disponibili anche con `--tools ""` (modelli solo chat).
 - [ ] Stesso ciclo in modalità `stateful` (default): la richiesta con i risultati riprende lo stesso processo.
 - [ ] Stesso ciclo con `X-Agent-Bridge-Tool-Mode: stateless`: un processo per passo, risposta finale corretta.
 - [ ] Chiamate parallele: due funzioni chiamate nello stesso passo arrivano nella stessa risposta.
 - [ ] Agente configurato con un proprio `mcp_config` e funzioni del client: entrambi i server MCP disponibili (`--mcp-config` ripetuto).
 - [ ] Risultati inviati dopo più di 2 minuti in modalità `stateful`: la chiamata non scade prima di `wait_timeout_seconds` (`MCP_TOOL_TIMEOUT`).
 - [ ] `X-Agent-Bridge-System-Mode: replace`: il comportamento segue il messaggio `system` della richiesta.
-- [ ] Modello `claude-code/<nome completo>` accettato dalla CLI.
+- [ ] Modello `bridge/<nome completo>` accettato dalla CLI.
+
+## Immagini
+
+- [ ] `examples/python/images.py` con un PNG e un JPEG: la risposta descrive l'immagine (ingresso stream-json con blocchi immagine accettato dalla CLI).
+- [ ] Immagine passata come URL `https`: scaricata e descritta.
+- [ ] Due immagini nello stesso messaggio: la risposta le cita come image 1 e image 2.
+- [ ] Immagine vicina a 5 MB: accettata (limite di stdin con ingresso strutturato).
+- [ ] Secondo turno con la stessa `X-Session-Id` e una nuova immagine: `--resume` con ingresso strutturato funziona.
 
 ## Modalità `api`
 

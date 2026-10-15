@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -137,5 +138,41 @@ func TestWithClientToolsTimeout(t *testing.T) {
 	}
 	if got := WithClientToolsTimeout(nil, 0); got[0] != "MCP_TOOL_TIMEOUT=86400000" {
 		t.Fatalf("default %q", got)
+	}
+}
+
+func TestStructuredInput(t *testing.T) {
+	got := Args(Spec{ToolsEnabled: true, StructuredInput: true})
+	want := append(append([]string{}, base...), "--input-format", "stream-json")
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("args %q", got)
+	}
+	line := UserMessage("look at [image 1]", []ImageBlock{{MediaType: "image/png", Data: []byte{1, 2, 3}}})
+	if !strings.HasSuffix(line, "\n") || strings.Count(line, "\n") != 1 {
+		t.Fatalf("not a single line: %q", line)
+	}
+	var msg struct {
+		Type    string `json:"type"`
+		Message struct {
+			Role    string `json:"role"`
+			Content []struct {
+				Type   string `json:"type"`
+				Text   string `json:"text"`
+				Source struct {
+					Type      string `json:"type"`
+					MediaType string `json:"media_type"`
+					Data      string `json:"data"`
+				} `json:"source"`
+			} `json:"content"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal([]byte(line), &msg); err != nil {
+		t.Fatal(err)
+	}
+	c := msg.Message.Content
+	if msg.Type != "user" || msg.Message.Role != "user" || len(c) != 3 || c[0].Text != "look at [image 1]" ||
+		c[1].Text != "[image 1]" || c[2].Type != "image" || c[2].Source.Type != "base64" ||
+		c[2].Source.MediaType != "image/png" || c[2].Source.Data != "AQID" {
+		t.Fatalf("message %+v", msg)
 	}
 }

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/r3n3r0/agent-bridge/internal/config"
+	"github.com/r3n3r0/agent-bridge/internal/media"
 	"github.com/r3n3r0/agent-bridge/internal/runner"
 	"github.com/r3n3r0/agent-bridge/internal/session"
 	"github.com/r3n3r0/agent-bridge/internal/stats"
@@ -179,6 +180,7 @@ func newHarness(t *testing.T, o harnessOpts) *harness {
 		Limiter:  limiter,
 		Recorder: st,
 		Broker:   broker,
+		Images:   media.NewHTTPResolver(media.Options{MaxBytes: cfg.Images.MaxBytes, FetchURLs: true, AllowPrivateNetworks: true}),
 		Logger:   log,
 	}, turn.Settings{
 		Binary:          cfg.Binary,
@@ -189,6 +191,7 @@ func newHarness(t *testing.T, o harnessOpts) *harness {
 		ToolHelper:      []string{bridgeBin, "mcp-tools"},
 		ToolWaitTimeout: o.toolWait,
 		ToolBatchWindow: 100 * time.Millisecond,
+		MaxImages:       cfg.Images.MaxCount,
 	})
 	srv := New(Options{
 		Config:            cfg,

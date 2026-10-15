@@ -47,13 +47,13 @@ messages = [
     {"role": "user", "content": "Should I bring an umbrella to Rome today?"},
 ]
 
-response = client.chat.completions.create(model="claude-code/sonnet", messages=messages, tools=tools)
+response = client.chat.completions.create(model="bridge/sonnet", messages=messages, tools=tools)
 while response.choices[0].finish_reason == "tool_calls":
     message = response.choices[0].message
     messages.append(message)
     for call in message.tool_calls:
         args = json.loads(call.function.arguments)
         messages.append({"role": "tool", "tool_call_id": call.id, "content": get_weather(**args)})
-    response = client.chat.completions.create(model="claude-code/sonnet", messages=messages, tools=tools)
+    response = client.chat.completions.create(model="bridge/sonnet", messages=messages, tools=tools)
 
 print(response.choices[0].message.content)

@@ -30,6 +30,7 @@ archives:
     files:
       - README.md
       - README.it.md
+      - LICENSE
       - CHANGELOG.md
       - docs/*
       - examples/**/*

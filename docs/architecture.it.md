@@ -19,6 +19,7 @@ Infrastruttura                    implementazioni sostituibili
    internal/runner    CLIExecutor (processo reale), FIFOLimiter, controllo processi per OS
    internal/stats     Collector, JSONLUsageLog, DiscardUsage
    internal/tools     HTTPBroker, server MCP delle funzioni del client (ServeMCP)
+   internal/media     HTTPResolver: URL data: e download di immagini con controllo degli indirizzi
 ```
 
 ## Interfacce
@@ -34,6 +35,7 @@ Infrastruttura                    implementazioni sostituibili
 | `UsageSink` | `stats` | `JSONLUsageLog`, `DiscardUsage` | Destinazione dei record di utilizzo |
 | `Broker` | `tools` | `HTTPBroker` | Instrada le chiamate alle funzioni del client verso il turno che le attende |
 | `Handler` | `tools` | il turno in esecuzione | Riceve una chiamata e la blocca fino al risultato del client |
+| `Resolver` | `media` | `HTTPResolver` | Trasforma l'URL di un'immagine (`data:` o `http(s)`) in byte validati |
 | `processController` (interna) | `runner` | process group su Unix, `taskkill` su Windows | Terminazione dell'albero dei processi |
 
 Le funzioni pure (costruzione del prompt in `prompt`, argomenti e ambiente in

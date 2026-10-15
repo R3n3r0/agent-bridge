@@ -16,6 +16,9 @@
 //	FAKE_TOOL_PARALLEL=1  send the calls concurrently instead of one by one
 //	FAKE_QUIET=1     no assistant text before the calls
 //
+// With --input-format stream-json the result also describes the received
+// user message: "[text=... images=image/png,...]".
+//
 // The tools scenario acts like the CLI with client functions: it starts the
 // MCP server named in the last --mcp-config, lists its tools and calls
 // them, then answers with the results. Without --mcp-config it answers
@@ -72,6 +75,9 @@ func main() {
 	result := os.Getenv("FAKE_RESULT")
 	if result == "" {
 		result = "Fake answer."
+	}
+	if flagValue(args, "--input-format") == "stream-json" {
+		result += " " + describeStructuredInput(stdin)
 	}
 	keySource := os.Getenv("FAKE_KEY_SOURCE")
 	if keySource == "" {
@@ -372,4 +378,36 @@ func runMCP(cfgPath string) ([]string, error) {
 		}
 	}
 	return results, nil
+}
+
+// describeStructuredInput summarizes a stream-json user message: its text
+// and the media types of its images.
+func describeStructuredInput(stdin []byte) string {
+	var msg struct {
+		Type    string `json:"type"`
+		Message struct {
+			Content []struct {
+				Type   string `json:"type"`
+				Text   string `json:"text"`
+				Source struct {
+					MediaType string `json:"media_type"`
+					Data      string `json:"data"`
+				} `json:"source"`
+			} `json:"content"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal(stdin, &msg); err != nil || msg.Type != "user" {
+		return "[invalid structured input]"
+	}
+	var images []string
+	text := ""
+	for i, c := range msg.Message.Content {
+		switch {
+		case i == 0 && c.Type == "text":
+			text = c.Text
+		case c.Type == "image" && c.Source.Data != "":
+			images = append(images, c.Source.MediaType)
+		}
+	}
+	return fmt.Sprintf("[text=%q images=%s]", text, strings.Join(images, ","))
 }

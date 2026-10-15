@@ -4,6 +4,9 @@
 package runner
 
 import (
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -34,6 +37,9 @@ type Spec struct {
 	// client's functions under ClientToolsServer. They are available even
 	// to chat-only agents, since they run on the client, not on the server.
 	ClientTools string
+	// StructuredInput sends the prompt as a stream-json user message on
+	// stdin (see UserMessage) instead of plain text; needed for images.
+	StructuredInput bool
 }
 
 // ClientToolsServer is the MCP server name used for client functions; the
@@ -60,6 +66,9 @@ func SpecFromAgent(a *config.Agent) Spec {
 // never an argument: it is written to stdin.
 func Args(s Spec) []string {
 	args := []string{"-p", "--output-format", "stream-json", "--verbose"}
+	if s.StructuredInput {
+		args = append(args, "--input-format", "stream-json")
+	}
 	if s.Model != "" {
 		args = append(args, "--model", s.Model)
 	}
@@ -141,4 +150,40 @@ func WithClientToolsTimeout(env []string, d time.Duration) []string {
 		d = 24 * time.Hour
 	}
 	return append(env, key+"="+strconv.FormatInt(d.Milliseconds(), 10))
+}
+
+// ImageBlock is an image sent to the CLI.
+type ImageBlock struct {
+	MediaType string
+	Data      []byte
+}
+
+// UserMessage returns the stream-json stdin line carrying text and images.
+// Each image is preceded by a "[image N]" label matching the placeholders
+// in the text.
+func UserMessage(text string, images []ImageBlock) string {
+	type source struct {
+		Type      string `json:"type"`
+		MediaType string `json:"media_type"`
+		Data      string `json:"data"`
+	}
+	type block struct {
+		Type   string  `json:"type"`
+		Text   string  `json:"text,omitempty"`
+		Source *source `json:"source,omitempty"`
+	}
+	content := []block{{Type: "text", Text: text}}
+	for i, img := range images {
+		content = append(content,
+			block{Type: "text", Text: fmt.Sprintf("[image %d]", i+1)},
+			block{Type: "image", Source: &source{Type: "base64", MediaType: img.MediaType, Data: base64.StdEncoding.EncodeToString(img.Data)}},
+		)
+	}
+	msg := map[string]any{
+		"type":               "user",
+		"message":            map[string]any{"role": "user", "content": content},
+		"parent_tool_use_id": nil,
+	}
+	b, _ := json.Marshal(msg)
+	return string(b) + "\n"
 }

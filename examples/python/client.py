@@ -22,7 +22,7 @@ print(review.choices[0].message.content)
 
 # Streaming with usage.
 stream = client.chat.completions.create(
-    model="claude-code/sonnet",
+    model="bridge/sonnet",
     messages=[{"role": "user", "content": "Write a haiku about pipes."}],
     stream=True,
     stream_options={"include_usage": True},

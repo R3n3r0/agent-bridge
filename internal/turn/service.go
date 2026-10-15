@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/r3n3r0/agent-bridge/internal/config"
+	"github.com/r3n3r0/agent-bridge/internal/media"
 	"github.com/r3n3r0/agent-bridge/internal/prompt"
 	"github.com/r3n3r0/agent-bridge/internal/redact"
 	"github.com/r3n3r0/agent-bridge/internal/runner"
@@ -166,6 +167,9 @@ type Deps struct {
 	// Broker routes client function calls; nil disables client functions
 	// (the tools field of requests is then ignored).
 	Broker tools.Broker
+	// Images loads the images referenced by requests; nil rejects requests
+	// that contain images.
+	Images media.Resolver
 	Logger *slog.Logger
 }
 
@@ -186,6 +190,8 @@ type Settings struct {
 	// ToolBatchWindow is how long calls are collected before being returned
 	// together as parallel tool calls (default 300ms).
 	ToolBatchWindow time.Duration
+	// MaxImages bounds the images of one turn (0 = no limit).
+	MaxImages int
 }
 
 type service struct {
@@ -317,9 +323,13 @@ func (s *service) start(ctx context.Context, req *Request, progress ProgressFunc
 		lt.log.Debug("system messages differ from the first turn and are ignored on resumed sessions")
 	}
 	applySystemMode(req)
-	text, err := prompt.BuildWith(req.Messages, prompt.Options{Resumed: resumed, OmitInstructions: req.omitInstructions()})
-	if err != nil {
-		return nil, lt.finish(stats.OutcomeError, newError(KindInvalid, "%v", err))
+	in, perr := s.prepareInput(ctx, req, resumed)
+	if perr != nil {
+		outcome := stats.OutcomeError
+		if perr.Kind == KindCanceled {
+			outcome = stats.OutcomeCanceled
+		}
+		return nil, lt.finish(outcome, perr)
 	}
 
 	queueStart := time.Now()
@@ -346,7 +356,7 @@ func (s *service) start(ctx context.Context, req *Request, progress ProgressFunc
 		entry = session.Entry{Agent: req.Agent.Name, Cwd: req.Cwd, CreatedAt: time.Now().UTC(), InstructionsHash: hash}
 	}
 	held = false
-	go lt.run(func() { stopOnHard(); release(); unlock() }, entry, resumed, text, hash)
+	go lt.run(func() { stopOnHard(); release(); unlock() }, entry, resumed, in, hash)
 	return lt.wait(ctx, progress)
 }
 
@@ -607,21 +617,21 @@ func (lt *liveTurn) canceled(what string) *Error {
 
 // run executes the process (with the resume fallback), records the outcome,
 // releases resources and delivers the final stop.
-func (lt *liveTurn) run(release func(), entry session.Entry, resumed bool, text, hash string) {
+func (lt *liveTurn) run(release func(), entry session.Entry, resumed bool, in input, hash string) {
 	s, req := lt.svc, lt.req
 	key := req.InternalKey()
 	resumeID := ""
 	if resumed {
 		resumeID = entry.CLISessionID
 	}
-	out, runErr := lt.exec(text, resumeID)
+	out, runErr := lt.exec(in, resumeID)
 	if resumed && resumeMissing(out, runErr) {
 		lt.log.Warn("stored session no longer exists, retrying once as a new session", "claude_session_id", entry.CLISessionID)
 		lt.storeErr(s.Store.Delete(key))
 		resumed = false
 		entry = session.Entry{Agent: req.Agent.Name, Cwd: req.Cwd, CreatedAt: time.Now().UTC(), InstructionsHash: hash}
-		if newText, err := prompt.BuildWith(req.Messages, prompt.Options{OmitInstructions: req.omitInstructions()}); err == nil {
-			out, runErr = lt.exec(newText, "")
+		if full, err := s.prepareInput(lt.ctx, req, false); err == nil {
+			out, runErr = lt.exec(full, "")
 		}
 	}
 
@@ -775,10 +785,54 @@ func (lt *liveTurn) classify(out *runner.Outcome, runErr error) (*Result, *Error
 	}
 }
 
-func (lt *liveTurn) exec(text, resumeID string) (*runner.Outcome, error) {
+// input is what is written to the CLI's stdin for one process.
+type input struct {
+	text   string
+	images []runner.ImageBlock
+}
+
+// prepareInput builds the prompt and loads its images.
+func (s *service) prepareInput(ctx context.Context, req *Request, resumed bool) (input, *Error) {
+	p, err := prompt.BuildPrompt(req.Messages, prompt.Options{Resumed: resumed, OmitInstructions: req.omitInstructions()})
+	if err != nil {
+		return input{}, newError(KindInvalid, "%v", err)
+	}
+	in := input{text: p.Text}
+	if len(p.Images) == 0 {
+		return in, nil
+	}
+	if s.Images == nil {
+		return input{}, newError(KindInvalid, "images are not enabled on this server")
+	}
+	if s.MaxImages > 0 && len(p.Images) > s.MaxImages {
+		return input{}, newError(KindInvalid, "too many images: %d, the limit is %d", len(p.Images), s.MaxImages)
+	}
+	for i, url := range p.Images {
+		img, err := s.Images.Resolve(ctx, url)
+		if err != nil {
+			if ctx.Err() != nil {
+				return input{}, newError(KindCanceled, "request canceled while loading images")
+			}
+			return input{}, newError(KindInvalid, "image %d: %v", i+1, err)
+		}
+		in.images = append(in.images, runner.ImageBlock{MediaType: img.MediaType, Data: img.Data})
+	}
+	if n := len(runner.UserMessage(in.text, in.images)); n > prompt.MaxBytes {
+		return input{}, newError(KindInvalid, "request too large: %d bytes with images, the limit is %d", n, prompt.MaxBytes)
+	}
+	return in, nil
+}
+
+func (lt *liveTurn) exec(in input, resumeID string) (*runner.Outcome, error) {
 	s := lt.svc
 	spec := lt.req.Spec
 	spec.ResumeID = resumeID
+	text := in.text
+	stdin := in.text
+	if len(in.images) > 0 {
+		spec.StructuredInput = true
+		stdin = runner.UserMessage(in.text, in.images)
+	}
 	env := runner.Env(s.BaseEnv, s.AuthMode)
 	if spec.ClientTools != "" {
 		env = runner.WithClientToolsTimeout(env, lt.req.Agent.Timeout)
@@ -788,11 +842,11 @@ func (lt *liveTurn) exec(text, resumeID string) (*runner.Outcome, error) {
 		Args:    runner.Args(spec),
 		Env:     env,
 		Dir:     lt.req.Cwd,
-		Stdin:   text,
+		Stdin:   stdin,
 		Timeout: lt.req.Agent.Timeout,
 		OnEvent: lt.onEvent,
 	}
-	lt.log.Debug("starting CLI", "resume", resumeID != "", "prompt", redact.Truncate(text, maxLoggedText))
+	lt.log.Debug("starting CLI", "resume", resumeID != "", "images", len(in.images), "prompt", redact.Truncate(text, maxLoggedText))
 	return s.Executor.Run(lt.ctx, req)
 }
 

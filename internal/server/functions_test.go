@@ -46,7 +46,7 @@ func followUp(model string, stream bool, c chatCompletion, results ...string) ma
 
 func TestToolCallsRoundTrip(t *testing.T) {
 	h := newHarness(t, harnessOpts{env: []string{"FAKE_SCENARIO=tools"}})
-	resp := h.post(toolsBody("claude-code/sonnet", false, msg("user", "What's the weather in Rome?")), nil)
+	resp := h.post(toolsBody("bridge/sonnet", false, msg("user", "What's the weather in Rome?")), nil)
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status %d: %s", resp.StatusCode, b)
@@ -63,7 +63,7 @@ func TestToolCallsRoundTrip(t *testing.T) {
 	}
 
 	// Plain OpenAI follow-up: no session header, only the tool result.
-	resp = h.post(followUp("claude-code/sonnet", false, c, "sunny, 24C"), nil)
+	resp = h.post(followUp("bridge/sonnet", false, c, "sunny, 24C"), nil)
 	c2 := decode[chatCompletion](t, resp)
 	if c2.Choices[0].FinishReason != "stop" || c2.Choices[0].Message.text() != "results: sunny, 24C" ||
 		len(c2.Choices[0].Message.ToolCalls) != 0 {
@@ -244,12 +244,12 @@ func TestFunctionValidation(t *testing.T) {
 func TestStatelessToolModeHeader(t *testing.T) {
 	h := newHarness(t, harnessOpts{env: []string{"FAKE_SCENARIO=tools"}})
 	hdr := map[string]string{headerToolMode: "stateless"}
-	c := decode[chatCompletion](t, h.post(toolsBody("claude-code/sonnet", false, msg("user", "What's the weather in Rome?")), hdr))
+	c := decode[chatCompletion](t, h.post(toolsBody("bridge/sonnet", false, msg("user", "What's the weather in Rome?")), hdr))
 	if c.Choices[0].FinishReason != "tool_calls" {
 		t.Fatalf("first step %+v", c.Choices[0])
 	}
 	waitFor(t, func() bool { return h.limiter.Active() == 0 })
-	c2 := decode[chatCompletion](t, h.post(followUp("claude-code/sonnet", false, c, "sunny"), hdr))
+	c2 := decode[chatCompletion](t, h.post(followUp("bridge/sonnet", false, c, "sunny"), hdr))
 	// The second step is a new process; the fake CLI calls the function
 	// again since it always does, so another tool_calls step is fine: what
 	// matters is that the first process did not survive and the history
@@ -276,7 +276,7 @@ func TestStatelessToolModeConfig(t *testing.T) {
 
 func TestSystemModeHeaderAndAnyModel(t *testing.T) {
 	h := newHarness(t, harnessOpts{})
-	body := map[string]any{"model": "claude-code/model-x-2[1m]", "messages": []map[string]any{
+	body := map[string]any{"model": "bridge/model-x-2[1m]", "messages": []map[string]any{
 		msg("system", "You are the planner agent."), msg("user", "plan it"),
 	}}
 	resp := h.post(body, map[string]string{headerSystemMode: "replace"})
@@ -285,7 +285,7 @@ func TestSystemModeHeaderAndAnyModel(t *testing.T) {
 		t.Fatalf("status %d %s", resp.StatusCode, b)
 	}
 	c := decode[chatCompletion](t, resp)
-	if c.Model != "claude-code/model-x-2[1m]" {
+	if c.Model != "bridge/model-x-2[1m]" {
 		t.Fatalf("model %q", c.Model)
 	}
 	r := h.starts()[0]
@@ -301,16 +301,16 @@ func TestSystemModeHeaderAndAnyModel(t *testing.T) {
 	if r.Stdin != "plan it" {
 		t.Fatalf("stdin %q", r.Stdin)
 	}
-	m := decode[modelObject](t, h.get("/v1/models/claude-code/model-x-2[1m]", nil))
-	if m.ID != "claude-code/model-x-2[1m]" {
+	m := decode[modelObject](t, h.get("/v1/models/bridge/model-x-2[1m]", nil))
+	if m.ID != "bridge/model-x-2[1m]" {
 		t.Fatalf("model detail %+v", m)
 	}
-	expectError(t, h.post(userMsg("claude-code/bad name", "x"), nil), 404, errModelNotFound)
+	expectError(t, h.post(userMsg("bridge/bad name", "x"), nil), 404, errModelNotFound)
 	expectError(t, h.post(body, map[string]string{headerSystemMode: "inline"}), 400, errInvalidRequest)
 
 	h2 := newHarness(t, harnessOpts{configJSON: `"builtin_any_model": false, "system_messages": "append"`})
-	expectError(t, h2.post(userMsg("claude-code/model-x", "x"), nil), 404, errModelNotFound)
-	resp = h2.post(map[string]any{"model": "claude-code/haiku", "messages": body["messages"]}, nil)
+	expectError(t, h2.post(userMsg("bridge/model-x", "x"), nil), 404, errModelNotFound)
+	resp = h2.post(map[string]any{"model": "bridge/haiku", "messages": body["messages"]}, nil)
 	resp.Body.Close()
 	if v, _ := argValue(h2.starts()[0].Args, "--append-system-prompt"); v != "You are the planner agent." {
 		t.Fatalf("config system_messages not applied: %q", h2.starts()[0].Args)

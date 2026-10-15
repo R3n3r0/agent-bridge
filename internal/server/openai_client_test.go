@@ -62,8 +62,8 @@ func TestOfficialOpenAIClient(t *testing.T) {
 	if len(models.Data) != 5 {
 		t.Fatalf("models %d", len(models.Data))
 	}
-	m, err := client.Models.Get(ctx, "claude-code/haiku")
-	if err != nil || m.ID != "claude-code/haiku" {
+	m, err := client.Models.Get(ctx, "bridge/haiku")
+	if err != nil || m.ID != "bridge/haiku" {
 		t.Fatalf("model %+v %v", m, err)
 	}
 
@@ -82,7 +82,7 @@ func TestOfficialOpenAIClientToolCalls(t *testing.T) {
 	defer cancel()
 
 	params := openai.ChatCompletionNewParams{
-		Model:    "claude-code/sonnet",
+		Model:    "bridge/sonnet",
 		Messages: []openai.ChatCompletionMessageParamUnion{openai.UserMessage("What's the weather in Rome?")},
 		Tools: []openai.ChatCompletionToolParam{{
 			Function: openai.FunctionDefinitionParam{

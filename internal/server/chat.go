@@ -123,6 +123,9 @@ func (s *Server) parseChat(w http.ResponseWriter, r *http.Request) (*chatCall, *
 		}
 		return nil, newError(http.StatusBadRequest, errInvalidRequest, err.Error())
 	}
+	if !s.cfg.Images.Enabled && prompt.CountImages(msgs) > 0 {
+		return nil, newError(http.StatusBadRequest, errUnsupported, "images are disabled on this server")
+	}
 	if len(prompt.Current(msgs)) == 0 {
 		return nil, newError(http.StatusBadRequest, errInvalidRequest, prompt.ErrNoCurrentRequest.Error())
 	}

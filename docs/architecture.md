@@ -19,6 +19,7 @@ Infrastructure                    replaceable implementations
    internal/runner    CLIExecutor (real process), FIFOLimiter, per-OS process control
    internal/stats     Collector, JSONLUsageLog, DiscardUsage
    internal/tools     HTTPBroker, client functions MCP server (ServeMCP)
+   internal/media     HTTPResolver: data: URLs and image downloads with address checks
 ```
 
 ## Interfaces
@@ -34,6 +35,7 @@ Infrastructure                    replaceable implementations
 | `UsageSink` | `stats` | `JSONLUsageLog`, `DiscardUsage` | Destination of usage records |
 | `Broker` | `tools` | `HTTPBroker` | Routes client function calls to the turn waiting for them |
 | `Handler` | `tools` | the running turn | Receives a call and blocks it until the client's result |
+| `Resolver` | `media` | `HTTPResolver` | Turns an image URL (`data:` or `http(s)`) into validated bytes |
 | `processController` (internal) | `runner` | process group on Unix, `taskkill` on Windows | Termination of the process tree |
 
 Pure functions (prompt construction in `prompt`, arguments and environment in

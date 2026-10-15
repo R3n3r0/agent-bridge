@@ -55,6 +55,9 @@ const (
 	DefaultMaxEntries        = 10000
 	DefaultSessionsFile      = "sessions.json"
 	DefaultToolWaitTimeout   = 600
+	DefaultImageMaxBytes     = 5 << 20
+	DefaultImageMaxCount     = 20
+	DefaultImageFetchTimeout = 20
 	DefaultToolBatchWindowMs = 300
 	StreamComments           = "comments"
 	StreamContent            = "content"
@@ -66,7 +69,7 @@ const (
 	OnBusyWait               = "wait"
 	OnBusyReject             = "reject"
 	PermissionBypass         = "bypassPermissions"
-	builtinPrefix            = "claude-code/"
+	DefaultBuiltinPrefix     = "bridge/"
 	maxAgentNameLength       = 64
 	defaultLogFormat         = "text"
 	defaultLogLevel          = "info"
@@ -76,12 +79,11 @@ const (
 // PermissionModes lists the accepted values for permission_mode.
 var PermissionModes = []string{"default", "acceptEdits", "plan", "bypassPermissions", "dontAsk", "auto"}
 
-// BuiltinModels maps the zero-config model names to CLI model aliases.
-var BuiltinModels = map[string]string{
-	builtinPrefix + "opus":   "opus",
-	builtinPrefix + "sonnet": "sonnet",
-	builtinPrefix + "haiku":  "haiku",
-}
+// BuiltinAliases are the CLI model aliases registered as zero-config models,
+// each under builtin_prefix (e.g. "bridge/opus").
+var BuiltinAliases = []string{"opus", "sonnet", "haiku"}
+
+var prefixRe = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,32}/$`)
 
 var agentNameRe = regexp.MustCompile(`^[a-zA-Z0-9._/-]+$`)
 
@@ -127,6 +129,19 @@ const (
 	// SystemReplace makes them the system prompt, replacing the CLI one.
 	SystemReplace = "replace"
 )
+
+// ImagesSection is the "images" object of the file: image_url content parts.
+type ImagesSection struct {
+	Enabled bool `json:"enabled"`
+	// FetchURLs allows http(s) image URLs, downloaded by the server;
+	// data: URLs are always accepted when images are enabled.
+	FetchURLs bool `json:"fetch_urls"`
+	// AllowPrivateNetworks allows downloads from non-public addresses.
+	AllowPrivateNetworks bool  `json:"allow_private_networks"`
+	MaxBytes             int64 `json:"max_bytes"`
+	MaxCount             int   `json:"max_count"`
+	FetchTimeoutSeconds  int   `json:"fetch_timeout_seconds"`
+}
 
 // OverridesSection is the "overrides" object of the file.
 type OverridesSection struct {
@@ -188,11 +203,13 @@ type Config struct {
 	AllowBypassPermissions bool                 `json:"allow_bypass_permissions"`
 	BuiltinModels          bool                 `json:"builtin_models"`
 	BuiltinAnyModel        bool                 `json:"builtin_any_model"`
+	BuiltinPrefix          string               `json:"builtin_prefix"`
 	SystemMessages         string               `json:"system_messages"`
 	Defaults               DefaultsSection      `json:"defaults"`
 	Sessions               SessionsSection      `json:"sessions"`
 	Overrides              OverridesSection     `json:"overrides"`
 	ClientTools            ClientToolsSection   `json:"client_tools"`
+	Images                 ImagesSection        `json:"images"`
 	AgentsFile             map[string]AgentFile `json:"agents"`
 
 	// Values that come only from flags or the environment.
@@ -253,6 +270,7 @@ func defaults() *Config {
 		StreamProgress:       StreamComments,
 		BuiltinModels:        true,
 		BuiltinAnyModel:      true,
+		BuiltinPrefix:        DefaultBuiltinPrefix,
 		SystemMessages:       SystemAsPrompt,
 		Defaults:             DefaultsSection{TimeoutSeconds: DefaultTimeout},
 		Sessions: SessionsSection{
@@ -266,6 +284,13 @@ func defaults() *Config {
 			Mode:               ToolModeStateful,
 			WaitTimeoutSeconds: DefaultToolWaitTimeout,
 			BatchWindowMs:      DefaultToolBatchWindowMs,
+		},
+		Images: ImagesSection{
+			Enabled:             true,
+			FetchURLs:           true,
+			MaxBytes:            DefaultImageMaxBytes,
+			MaxCount:            DefaultImageMaxCount,
+			FetchTimeoutSeconds: DefaultImageFetchTimeout,
 		},
 		LogFormat: defaultLogFormat,
 		LogLevel:  defaultLogLevel,
@@ -382,10 +407,18 @@ func (c *Config) resolve() error {
 		"sessions.max_entries":              c.Sessions.MaxEntries,
 		"client_tools.wait_timeout_seconds": c.ClientTools.WaitTimeoutSeconds,
 		"client_tools.batch_window_ms":      c.ClientTools.BatchWindowMs,
+		"images.max_count":                  c.Images.MaxCount,
+		"images.fetch_timeout_seconds":      c.Images.FetchTimeoutSeconds,
 	} {
 		if v < 0 {
 			add("%s: must not be negative, got %d", name, v)
 		}
+	}
+	if c.Images.MaxBytes < 0 {
+		add("images.max_bytes: must not be negative, got %d", c.Images.MaxBytes)
+	}
+	if !prefixRe.MatchString(c.BuiltinPrefix) {
+		add("builtin_prefix: must be 1-32 characters from [a-zA-Z0-9._-] followed by \"/\", got %q", c.BuiltinPrefix)
 	}
 	if !oneOf(c.SystemMessages, SystemAsPrompt, SystemAppend, SystemReplace) {
 		add("system_messages: must be prompt, append or replace, got %q", c.SystemMessages)
@@ -446,7 +479,8 @@ func (c *Config) resolve() error {
 		}
 	}
 	if c.BuiltinModels {
-		for name, model := range BuiltinModels {
+		for _, model := range BuiltinAliases {
+			name := c.BuiltinPrefix + model
 			c.Agents[name] = c.builtinAgent(name, model)
 		}
 	}
@@ -461,7 +495,7 @@ func (c *Config) resolveAgent(name string, f AgentFile) (*Agent, []error) {
 	if len(name) == 0 || len(name) > maxAgentNameLength || !agentNameRe.MatchString(name) {
 		add("name", "must be 1-%d characters from [a-zA-Z0-9._/-]", maxAgentNameLength)
 	}
-	if _, ok := BuiltinModels[name]; ok && c.BuiltinModels {
+	if c.isBuiltinName(name) {
 		add("name", "conflicts with a built-in model")
 	}
 	a := &Agent{
@@ -531,6 +565,19 @@ func (c *Config) resolveAgent(name string, f AgentFile) (*Agent, []error) {
 	return a, errs
 }
 
+// isBuiltinName reports whether name is one of the registered aliases.
+func (c *Config) isBuiltinName(name string) bool {
+	if !c.BuiltinModels {
+		return false
+	}
+	for _, a := range BuiltinAliases {
+		if name == c.BuiltinPrefix+a {
+			return true
+		}
+	}
+	return false
+}
+
 // builtinAgent returns a chat-only agent running model.
 func (c *Config) builtinAgent(name, model string) *Agent {
 	return &Agent{
@@ -556,7 +603,7 @@ func (c *Config) Agent(name string) (*Agent, bool) {
 	if a, ok := c.Agents[name]; ok {
 		return a, true
 	}
-	model, ok := strings.CutPrefix(name, builtinPrefix)
+	model, ok := strings.CutPrefix(name, c.BuiltinPrefix)
 	if !ok || !c.BuiltinModels || !c.BuiltinAnyModel || !modelNameRe.MatchString(model) {
 		return nil, false
 	}

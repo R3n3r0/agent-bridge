@@ -8,8 +8,15 @@ the official Claude Code CLI in headless mode
 (`claude -p --output-format stream-json`).
 
 Any client or framework that speaks OpenAI can use it by changing only
-`base_url`, `api_key` and `model`: chat, streaming and function calling work
-with the official SDKs unchanged.
+`base_url`, `api_key` and `model`: chat, streaming, function calling (tool
+calling) and image input work with the official SDKs unchanged.
+
+In short: an **OpenAI-compatible API server, proxy and gateway for Claude
+Code**. It lets OpenAI-based multi-agent systems, ReAct orchestrators and
+frameworks that accept a custom OpenAI `base_url` (for example LangChain,
+LlamaIndex, CrewAI, AutoGen or the OpenAI SDKs for Python, Node and Go) use
+Claude Code headless as a drop-in chat completions model or as a coding agent,
+with tool calling, MCP servers, sessions, streaming (SSE) and per-agent models.
 
 > **Independent project.** agent-bridge is not developed, endorsed or
 > supported by Anthropic. It runs the official `claude` binary installed on
@@ -19,6 +26,8 @@ with the official SDKs unchanged.
 - Linux, macOS and Windows (amd64 and arm64).
 - Same build for development (subscription login) and production (API key).
 - OpenAI function calling (`tools`, `tool_calls`), streaming included.
+- Image input (`image_url` parts: data URLs and http(s) URLs).
+- Free software, licensed under the GNU GPL v3 or later.
 
 ## Two ways to use it
 
@@ -26,7 +35,7 @@ with the official SDKs unchanged.
 | --- | --- | --- |
 | Who defines the agent | Your client or platform: `system`, `tools`, model choice | The bridge configuration file |
 | Available tools | Only the functions the client sends in `tools`, executed by the client | CLI tools on the server machine (files, commands, search, MCP servers), plus any client functions |
-| `model` | `claude-code/opus`, `claude-code/sonnet`, `claude-code/haiku`, `claude-code/<model name>` | The name of the configured agent |
+| `model` | `bridge/opus`, `bridge/sonnet`, `bridge/haiku`, `bridge/<model name>` | The name of the configured agent |
 | Configuration | None | JSON file |
 | Section | [Using it as a model](#using-it-as-a-model) | [Agents on the server](#agents-on-the-server) |
 
@@ -47,14 +56,15 @@ interactive login (`claude`).
 go install github.com/r3n3r0/agent-bridge/cmd/agent-bridge@latest
 AGENT_BRIDGE_AUTH_MODE=subscription agent-bridge
 curl -s http://127.0.0.1:8787/v1/chat/completions \
-  -d '{"model":"claude-code/haiku","messages":[{"role":"user","content":"Hello!"}]}'
+  -d '{"model":"bridge/haiku","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
 Without a configuration file the server listens on `127.0.0.1:8787` and accepts
-the models `claude-code/opus`, `claude-code/sonnet`, `claude-code/haiku` and
-`claude-code/<model name>` (the name after the prefix is passed to the CLI as
-is). They are *chat-only* models: no server tools, an empty temporary working
-directory, but they accept client functions.
+the models `bridge/opus`, `bridge/sonnet`, `bridge/haiku` and
+`bridge/<model name>` (the name after the prefix is passed to the CLI as
+is; the `bridge/` prefix can be changed with `builtin_prefix`). They are
+*chat-only* models: no server tools, an empty temporary working directory,
+but they accept client functions and images.
 
 Alternatively, download a binary from the releases page (archives and
 `checksums.txt` for every platform).
@@ -69,7 +79,7 @@ model and the agent is the one defined in the platform.
 | --- | --- |
 | Agent instructions | `system` message |
 | Agent tools | `tools` |
-| Model | `claude-code/<alias or model name>` |
+| Model | `bridge/<alias or model name>` |
 
 Two options make the bridge stateless and make the platform's agent the only
 agent. Set them in the configuration, or per request with a header:
@@ -98,13 +108,13 @@ the model continues. It also works when streaming (`delta.tool_calls`) and
 without session headers.
 
 ```python
-r = client.chat.completions.create(model="claude-code/sonnet", messages=messages, tools=tools)
+r = client.chat.completions.create(model="bridge/sonnet", messages=messages, tools=tools)
 while r.choices[0].finish_reason == "tool_calls":
     messages.append(r.choices[0].message)
     for call in r.choices[0].message.tool_calls:
         messages.append({"role": "tool", "tool_call_id": call.id,
                          "content": run(call.function.name, call.function.arguments)})
-    r = client.chat.completions.create(model="claude-code/sonnet", messages=messages, tools=tools)
+    r = client.chat.completions.create(model="bridge/sonnet", messages=messages, tools=tools)
 ```
 
 Complete example: [examples/python/tools.py](examples/python/tools.py).
@@ -137,6 +147,33 @@ Differences to be aware of:
   the process, as in `stateless` mode.
 - In a `tool_calls` response `usage` covers only the model's last message;
   turn totals are in the logs and in `/stats`.
+
+## Images
+
+Messages can contain `image_url` parts, as in the OpenAI API, with any model:
+
+```python
+r = client.chat.completions.create(model="bridge/sonnet", messages=[{"role": "user", "content": [
+    {"type": "text", "text": "What is in this picture?"},
+    {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
+]}])
+```
+
+- **Sources**: `data:` URLs (base64) and `http(s)` URLs, which the bridge
+  downloads. Downloads from non-public addresses (loopback, private networks,
+  cloud metadata) are refused unless `images.allow_private_networks` is set;
+  `images.fetch_urls: false` accepts only `data:` URLs.
+- **Formats**: PNG, JPEG, GIF, WebP, recognized from the content. Up to
+  `images.max_count` images per request (default 20) and `images.max_bytes`
+  each (default 5 MB); the whole input, images included, must stay within
+  9 MB.
+- **How**: images are sent to the CLI as image blocks of a structured
+  message (`--input-format stream-json`); the text refers to them as
+  `[image 1]`, `[image 2]`… in order. Requests without images keep plain-text
+  input.
+- In a resumed session only the images of the new messages are sent; earlier
+  ones are already in the session. `images.enabled: false` rejects images with
+  400 `unsupported_content`.
 
 ## Agents on the server
 
@@ -261,7 +298,7 @@ are closed and every opening is explicit.
   comparison). `/healthz` and `/readyz` stay open.
 - **CORS** is disabled; enable it with an exact list of origins
   (`cors_origins`), no wildcards.
-- **`claude-code/*` models** are always chat-only: no server tools, in any
+- **`bridge/*` models** are always chat-only: no server tools, in any
   mode.
 - **Client functions** are executed only by the client, never on the server.
   Calls go through an internal broker on `127.0.0.1` with a random port and a
@@ -271,7 +308,7 @@ are closed and every opening is explicit.
   `X-Agent-System-Prompt`) are rejected with 403 unless enabled in
   `overrides`; they can only narrow tools, the directory must be inside an
   allowed root (also after resolving symlinks), and the system prompt is only
-  appended. Never applicable to `claude-code/*` models.
+  appended. Never applicable to `bridge/*` models.
 - **`system_messages`.** With `replace` the CLI system prompt is replaced by
   the request's messages (the agent's `system_prompt` stays first); the
   permissions of the agent's tools do not change.
@@ -292,6 +329,7 @@ Client examples:
 - Go with the official SDK: [examples/go](examples/go/main.go)
 - Python with the official SDK: [examples/python/client.py](examples/python/client.py)
 - Python, function calling: [examples/python/tools.py](examples/python/tools.py)
+- Python, images: [examples/python/images.py](examples/python/images.py)
 - curl: [examples/curl.sh](examples/curl.sh)
 
 Endpoints:
@@ -299,7 +337,7 @@ Endpoints:
 | Method and path | Purpose |
 | --- | --- |
 | `POST /v1/chat/completions` | Runs a turn (JSON or SSE) |
-| `GET /v1/models`, `GET /v1/models/{id}` | Lists configured agents and `claude-code/*` aliases (`claude-code/<model name>` names answer the detail endpoint but are not listed) |
+| `GET /v1/models`, `GET /v1/models/{id}` | Lists configured agents and `bridge/*` aliases (`bridge/<model name>` names answer the detail endpoint but are not listed); the prefix follows `builtin_prefix` |
 | `GET /stats` | Per-agent statistics; `?reset=true` resets them after returning them |
 | `GET /metrics` | Prometheus metrics (with `metrics: true`) |
 | `GET /healthz`, `GET /readyz` | Liveness and readiness |
@@ -328,9 +366,10 @@ mode and directory permissions; with `-live` it runs a test turn on Haiku.
   `logprobs`, `max_tokens` are accepted and ignored.
 - Function calling: a binding `tool_choice`, `parallel_tool_calls: false` and
   function schemas are instructions to the model, not enforced constraints.
-- Text content only: images and audio return 400 `unsupported_content`.
-- No support for `/v1/responses`, `/v1/embeddings`, images, audio, or other
-  providers.
+- Content parts other than text and `image_url` (audio, files) return 400
+  `unsupported_content`; `detail` on images is accepted and ignored.
+- No support for `/v1/responses`, `/v1/embeddings`, image generation, audio,
+  or other providers.
 - Prompts up to 9 MB (the CLI limits stdin to 10 MB).
 - When streaming, the `X-Agent-Bridge-Turns`, `-Cost-USD` and `-Duration-Ms`
   response headers are not available (headers are sent before execution);
@@ -350,12 +389,15 @@ mode and directory permissions; with `-live` it runs a test turn on Haiku.
 function calling, and agent tools on the server (files, commands, search, MCP
 servers) for configured agents. See [Two ways to use it](#two-ways-to-use-it).
 
+**Does it accept images?** Yes, `image_url` parts with `data:` or `http(s)`
+URLs, as in the OpenAI API. See [Images](#images).
+
 **Do I need to change my OpenAI client?** No: change `base_url`
 (`http://127.0.0.1:8787/v1`), `api_key` (the `AGENT_BRIDGE_API_KEY`, or any
 value if it is not set) and `model`.
 
 **Do I need a configuration file for every agent?** No, if agents are defined
-in the client: instructions in `system`, tools in `tools`, a `claude-code/*`
+in the client: instructions in `system`, tools in `tools`, a `bridge/*`
 model. The file is only needed for agents that use the server's tools.
 
 **Is the context duplicated if I send the whole history?** Without
@@ -377,7 +419,7 @@ the second gets 409 (`on_busy: reject`).
 
 Layered structure with interfaces and replaceable implementations:
 [docs/architecture.md](docs/architecture.md). Full technical specification,
-revision 1.2: [docs/specification.md](docs/specification.md).
+revision 1.3: [docs/specification.md](docs/specification.md).
 
 ```sh
 go test -race ./...          # uses a fake CLI binary, no credentials
@@ -386,3 +428,14 @@ go test -race ./...          # uses a fake CLI binary, no credentials
 
 CI never uses the real CLI or credentials. Manual checks before every release
 are in [docs/release-checklist.md](docs/release-checklist.md).
+
+## License
+
+agent-bridge is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version. See [LICENSE](LICENSE).
+
+The license covers this project's code only. Claude Code is a separate product
+with its own terms, installed and used by you under your agreement with
+Anthropic.

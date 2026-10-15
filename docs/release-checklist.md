@@ -18,8 +18,8 @@ Record the CLI version, operating system and outcome of each item.
 Environment without `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`, logged in with the CLI.
 
 - [ ] `agent-bridge doctor -live` exits with code 0.
-- [ ] Non-stream request to `claude-code/haiku`: 200, `usage` populated.
-- [ ] Stream request to `claude-code/sonnet` with `include_usage`: complete SSE sequence, `[DONE]`.
+- [ ] Non-stream request to `bridge/haiku`: 200, `usage` populated.
+- [ ] Stream request to `bridge/sonnet` with `include_usage`: complete SSE sequence, `[DONE]`.
 - [ ] The turn log reports no errors about the credential source.
 - [ ] Built-in model asked to read a file: no tool used (`debug` log).
 - [ ] Agent with tools that modifies a file in a test repository: change present on disk.
@@ -29,14 +29,22 @@ Environment without `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`, logged in wit
 
 ## Function calling
 
-- [ ] Full loop with `examples/python/tools.py` on `claude-code/sonnet`: the client's MCP tools are available even with `--tools ""` (chat-only models).
+- [ ] Full loop with `examples/python/tools.py` on `bridge/sonnet`: the client's MCP tools are available even with `--tools ""` (chat-only models).
 - [ ] Same loop in `stateful` mode (default): the request with the results resumes the same process.
 - [ ] Same loop with `X-Agent-Bridge-Tool-Mode: stateless`: one process per step, correct final response.
 - [ ] Parallel calls: two functions called in the same step arrive in the same response.
 - [ ] Agent configured with its own `mcp_config` and client functions: both MCP servers available (`--mcp-config` repeated).
 - [ ] Results sent after more than 2 minutes in `stateful` mode: the call does not time out before `wait_timeout_seconds` (`MCP_TOOL_TIMEOUT`).
 - [ ] `X-Agent-Bridge-System-Mode: replace`: the behavior follows the request's `system` message.
-- [ ] Model `claude-code/<full name>` accepted by the CLI.
+- [ ] Model `bridge/<full name>` accepted by the CLI.
+
+## Images
+
+- [ ] `examples/python/images.py` with a PNG and a JPEG: the answer describes the image (stream-json input with image blocks accepted by the CLI).
+- [ ] Image given as an `https` URL: downloaded and described.
+- [ ] Two images in one message: the answer refers to them as image 1 and image 2.
+- [ ] Image close to 5 MB: accepted (stdin limit with structured input).
+- [ ] Second turn with the same `X-Session-Id` and a new image: `--resume` with structured input works.
 
 ## `api` mode
 

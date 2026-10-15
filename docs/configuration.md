@@ -59,14 +59,16 @@ environment; in `subscription` mode, so are `ANTHROPIC_API_KEY` and
 | `metrics` | `false` | Enables `GET /metrics` |
 | `cors_origins` | `[]` | Allowed origins, exact, no wildcards |
 | `allow_bypass_permissions` | `false` | Allows `permission_mode: bypassPermissions` |
-| `builtin_models` | `true` | Registers `claude-code/opus`, `claude-code/sonnet`, `claude-code/haiku`: chat-only agents, without server tools, that accept client functions |
-| `builtin_any_model` | `true` | Also accepts `claude-code/<model>` for any model name (`[a-zA-Z0-9][a-zA-Z0-9._[]-]`, up to 100 characters), as a chat-only agent |
+| `builtin_models` | `true` | Registers `bridge/opus`, `bridge/sonnet`, `bridge/haiku`: chat-only agents, without server tools, that accept client functions |
+| `builtin_prefix` | `bridge/` | Prefix of the zero-config models: 1-32 characters `[a-zA-Z0-9._-]` followed by `/` |
+| `builtin_any_model` | `true` | Also accepts `bridge/<model>` for any model name (`[a-zA-Z0-9][a-zA-Z0-9._[]-]`, up to 100 characters), as a chat-only agent |
 | `system_messages` | `prompt` | How `system`/`developer` messages are delivered: `prompt` (at the start of the prompt, in `<instructions>`), `append` (appended to the CLI's system prompt), `replace` (they become the system prompt in place of the CLI's). Can be overridden per request with `X-Agent-Bridge-System-Mode` |
 | `defaults.timeout_seconds` | `1800` | Default turn timeout |
 | `defaults.max_turns` | `0` | Default maximum turns (0 = unlimited) |
 | `sessions` | | See below |
 | `overrides` | | See below |
 | `client_tools` | | See below |
+| `images` | | See below |
 | `agents` | `{}` | Agents, by name |
 
 Unknown keys in the file are an error, to catch typos.
@@ -149,7 +151,7 @@ before the turn.
 | `allow_tools` | `false` | `X-Agent-Allowed-Tools` (comma-separated list) can only narrow `allowed_tools` |
 | `allow_system_prompt` | `false` | `X-Agent-System-Prompt` (base64, at most 16 KB decoded) is appended after the agent's prompt |
 
-Overrides never apply to `claude-code/*` models (aliases and
+Overrides never apply to `bridge/*` models (aliases and
 arbitrary models). An override that is not enabled or is out of bounds produces 403
 `override_not_allowed`.
 
@@ -197,6 +199,27 @@ in the agent always stays first and the request's messages are
 appended after it. `system` messages are applied on every turn, including in
 resumed sessions.
 
+## `images`
+
+`image_url` content parts. Images are sent to the CLI as image blocks of a
+stream-json user message (`--input-format stream-json`), referred to in the
+text as `[image 1]`, `[image 2]`… in order; requests without images keep
+plain-text stdin.
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `enabled` | `true` | With `false`, requests with images are rejected with 400 `unsupported_content` |
+| `fetch_urls` | `true` | Accept `http(s)` URLs, downloaded by the server; with `false` only `data:` URLs |
+| `allow_private_networks` | `false` | Allow downloads from non-public addresses (loopback, private, link-local, shared, multicast). The check runs on the resolved address of every connection, redirects included; without it, downloads do not use `HTTP(S)_PROXY` |
+| `max_bytes` | `5242880` | Largest image, decoded |
+| `max_count` | `20` | Most images per request (0 = no limit) |
+| `fetch_timeout_seconds` | `20` | Timeout of each download |
+
+Accepted formats, detected from the content: PNG, JPEG, GIF, WebP. The whole
+stdin message, base64 images included, must stay within 9 MB. Invalid,
+unreachable or oversized images return 400 `invalid_request_error` before
+any process starts.
+
 ## HTTP errors
 
 OpenAI format: `{"error": {"message", "type", "code"}}`, with `type` and `code`
@@ -205,10 +228,10 @@ equal.
 | HTTP | Code | When |
 | --- | --- | --- |
 | 400 | `invalid_request_error` | Invalid JSON, body over 10 MB, `messages` empty or without `user` messages, no `user` or `tool` message after the last `assistant`, invalid headers, invalid functions (see `client_tools`), prompt over 9 MB |
-| 400 | `unsupported_content` | Non-text content parts |
+| 400 | `unsupported_content` | Content parts other than text and `image_url`; images when `images.enabled` is `false` |
 | 401 | `authentication_error` | Missing or wrong Bearer key |
 | 403 | `override_not_allowed` | Override not enabled or out of bounds |
-| 404 | `model_not_found` | Nonexistent agent or invalid `claude-code/<model>` name |
+| 404 | `model_not_found` | Nonexistent agent or invalid `bridge/<model>` name |
 | 409 | `session_busy` | `on_busy: reject` and session in use |
 | 429 | `queue_full` | Queue full or wait expired, with `Retry-After: 30` |
 | 502 | `claude_code_error` | Process exited with an error or without a result; includes at most 2000 characters of stderr, scrubbed of secrets |

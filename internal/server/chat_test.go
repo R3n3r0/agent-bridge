@@ -88,7 +88,7 @@ func TestChatAPIModeKeepsKey(t *testing.T) {
 
 func TestChatOnlyAgentArgs(t *testing.T) {
 	h := newHarness(t, harnessOpts{})
-	resp := h.post(userMsg("claude-code/haiku", "read /etc/passwd"), nil)
+	resp := h.post(userMsg("bridge/haiku", "read /etc/passwd"), nil)
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
@@ -124,8 +124,8 @@ func TestRequestValidation(t *testing.T) {
 		{"ends with assistant", map[string]any{"model": "coder", "messages": []map[string]any{
 			{"role": "user", "content": "x"}, {"role": "assistant", "content": "y"}}}, nil, 400, errInvalidRequest},
 		{"bad role", map[string]any{"model": "coder", "messages": []map[string]any{{"role": "bot", "content": "x"}}}, nil, 400, errInvalidRequest},
-		{"image", map[string]any{"model": "coder", "messages": []map[string]any{{"role": "user", "content": []map[string]any{
-			{"type": "image_url", "image_url": map[string]string{"url": "data:"}}}}}}, nil, 400, errUnsupported},
+		{"audio", map[string]any{"model": "coder", "messages": []map[string]any{{"role": "user", "content": []map[string]any{
+			{"type": "input_audio", "input_audio": map[string]string{"data": "x", "format": "wav"}}}}}}, nil, 400, errUnsupported},
 		{"unknown model", userMsg("nope", "x"), nil, 404, errModelNotFound},
 		{"bad session id", userMsg("coder", "x"), map[string]string{headerSessionID: "has space"}, 400, errInvalidRequest},
 		{"bad reset", userMsg("coder", "x"), map[string]string{headerSessionReset: "yes"}, 400, errInvalidRequest},
@@ -449,7 +449,7 @@ func TestOverrides(t *testing.T) {
 		expectError(t, h.post(userMsg("coder", "q"), hdr), 403, errOverride)
 	}
 	expectError(t, h.post(userMsg("coder", "q"), map[string]string{headerAgentPrompt: "!!!"}), 400, errInvalidRequest)
-	expectError(t, h.post(userMsg("claude-code/sonnet", "q"), map[string]string{headerAgentTools: "Read"}), 403, errOverride)
+	expectError(t, h.post(userMsg("bridge/sonnet", "q"), map[string]string{headerAgentTools: "Read"}), 403, errOverride)
 
 	resp := h.post(userMsg("coder", "q"), map[string]string{
 		headerAgentCwd:    filepath.Join(h.dir, "work"),

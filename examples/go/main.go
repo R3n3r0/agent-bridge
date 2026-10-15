@@ -26,7 +26,7 @@ func main() {
 	ctx := context.Background()
 
 	params := openai.ChatCompletionNewParams{
-		Model:    "claude-code/haiku",
+		Model:    "bridge/haiku",
 		Messages: []openai.ChatCompletionMessageParamUnion{openai.UserMessage("Explain goroutines in two sentences.")},
 	}
 

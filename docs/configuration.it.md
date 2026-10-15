@@ -59,14 +59,16 @@ figlio; in modalità `subscription` anche `ANTHROPIC_API_KEY` e
 | `metrics` | `false` | Abilita `GET /metrics` |
 | `cors_origins` | `[]` | Origini ammesse, esatte, senza jolly |
 | `allow_bypass_permissions` | `false` | Consente `permission_mode: bypassPermissions` |
-| `builtin_models` | `true` | Registra `claude-code/opus`, `claude-code/sonnet`, `claude-code/haiku`: agenti solo chat, senza tool del server, che accettano le funzioni del client |
-| `builtin_any_model` | `true` | Accetta anche `claude-code/<modello>` per qualsiasi nome di modello (`[a-zA-Z0-9][a-zA-Z0-9._[]-]`, fino a 100 caratteri), come agente solo chat |
+| `builtin_models` | `true` | Registra `bridge/opus`, `bridge/sonnet`, `bridge/haiku`: agenti solo chat, senza tool del server, che accettano le funzioni del client |
+| `builtin_prefix` | `bridge/` | Prefisso dei modelli senza configurazione: 1-32 caratteri `[a-zA-Z0-9._-]` seguiti da `/` |
+| `builtin_any_model` | `true` | Accetta anche `bridge/<modello>` per qualsiasi nome di modello (`[a-zA-Z0-9][a-zA-Z0-9._[]-]`, fino a 100 caratteri), come agente solo chat |
 | `system_messages` | `prompt` | Come arrivano i messaggi `system`/`developer`: `prompt` (in testa al prompt, in `<instructions>`), `append` (aggiunti al system prompt della CLI), `replace` (diventano il system prompt al posto di quello della CLI). Sovrascrivibile per richiesta con `X-Agent-Bridge-System-Mode` |
 | `defaults.timeout_seconds` | `1800` | Timeout di default dei turni |
 | `defaults.max_turns` | `0` | Turni massimi di default (0 = illimitato) |
 | `sessions` | | Vedi sotto |
 | `overrides` | | Vedi sotto |
 | `client_tools` | | Vedi sotto |
+| `images` | | Vedi sotto |
 | `agents` | `{}` | Agenti, per nome |
 
 Chiavi sconosciute nel file sono un errore, per intercettare refusi.
@@ -149,7 +151,7 @@ prima del turno.
 | `allow_tools` | `false` | `X-Agent-Allowed-Tools` (lista separata da virgole) può solo restringere `allowed_tools` |
 | `allow_system_prompt` | `false` | `X-Agent-System-Prompt` (base64, al massimo 16 KB decodificati) viene aggiunto dopo il prompt dell'agente |
 
-Gli override non sono mai applicabili ai modelli `claude-code/*` (alias e
+Gli override non sono mai applicabili ai modelli `bridge/*` (alias e
 modelli qualsiasi). Un override non abilitato o fuori dai limiti produce 403
 `override_not_allowed`.
 
@@ -197,6 +199,27 @@ nell'agente resta sempre in testa e i messaggi della richiesta vengono
 aggiunti dopo. I messaggi `system` sono applicati a ogni turno, anche nelle
 sessioni riprese.
 
+## `images`
+
+Parti di contenuto `image_url`. Le immagini arrivano alla CLI come blocchi
+immagine di un messaggio utente stream-json (`--input-format stream-json`), a
+cui il testo fa riferimento come `[image 1]`, `[image 2]`… nell'ordine; le
+richieste senza immagini mantengono lo stdin in testo semplice.
+
+| Campo | Default | Significato |
+| --- | --- | --- |
+| `enabled` | `true` | Con `false` le richieste con immagini sono rifiutate con 400 `unsupported_content` |
+| `fetch_urls` | `true` | Accetta URL `http(s)`, scaricati dal server; con `false` solo URL `data:` |
+| `allow_private_networks` | `false` | Consente download da indirizzi non pubblici (loopback, privati, link-local, condivisi, multicast). Il controllo avviene sull'indirizzo risolto di ogni connessione, redirect compresi; senza questa opzione i download non usano `HTTP(S)_PROXY` |
+| `max_bytes` | `5242880` | Dimensione massima di un'immagine, decodificata |
+| `max_count` | `20` | Numero massimo di immagini per richiesta (0 = nessun limite) |
+| `fetch_timeout_seconds` | `20` | Timeout di ogni download |
+
+Formati accettati, riconosciuti dal contenuto: PNG, JPEG, GIF, WebP. L'intero
+messaggio su stdin, immagini in base64 comprese, deve restare entro 9 MB.
+Immagini non valide, irraggiungibili o troppo grandi producono 400
+`invalid_request_error` prima che parta qualsiasi processo.
+
 ## Errori HTTP
 
 Formato OpenAI: `{"error": {"message", "type", "code"}}`, con `type` e `code`
@@ -205,10 +228,10 @@ uguali.
 | HTTP | Codice | Quando |
 | --- | --- | --- |
 | 400 | `invalid_request_error` | JSON non valido, corpo oltre 10 MB, `messages` vuoto o senza messaggi `user`, nessun messaggio `user` o `tool` dopo l'ultimo `assistant`, header non validi, funzioni non valide (vedi `client_tools`), prompt oltre 9 MB |
-| 400 | `unsupported_content` | Parti di contenuto non testuali |
+| 400 | `unsupported_content` | Parti di contenuto diverse da testo e `image_url`; immagini quando `images.enabled` è `false` |
 | 401 | `authentication_error` | Chiave Bearer mancante o errata |
 | 403 | `override_not_allowed` | Override non abilitato o fuori dai limiti |
-| 404 | `model_not_found` | Agente inesistente o nome `claude-code/<modello>` non valido |
+| 404 | `model_not_found` | Agente inesistente o nome `bridge/<modello>` non valido |
 | 409 | `session_busy` | `on_busy: reject` e sessione in uso |
 | 429 | `queue_full` | Coda piena o attesa scaduta, con `Retry-After: 30` |
 | 502 | `claude_code_error` | Processo terminato con errore o senza risultato; include al massimo 2000 caratteri di stderr, ripuliti dai segreti |

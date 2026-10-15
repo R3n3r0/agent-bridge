@@ -33,7 +33,7 @@ func TestCheckConfig(t *testing.T) {
 	if code := run([]string{"check-config", "-config", good}, &out, &errb); code != 0 {
 		t.Fatalf("code %d: %s", code, errb.String())
 	}
-	for _, want := range []string{"reviewer (agent)", "allowed: Read", "chat (agent)", "disabled (chat only)", "claude-code/opus (built-in)"} {
+	for _, want := range []string{"reviewer (agent)", "allowed: Read", "chat (agent)", "disabled (chat only)", "bridge/opus (built-in)"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("missing %q in %s", want, out.String())
 		}

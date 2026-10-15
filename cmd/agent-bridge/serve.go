@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/r3n3r0/agent-bridge/internal/config"
+	"github.com/r3n3r0/agent-bridge/internal/media"
 	"github.com/r3n3r0/agent-bridge/internal/redact"
 	"github.com/r3n3r0/agent-bridge/internal/runner"
 	"github.com/r3n3r0/agent-bridge/internal/server"
@@ -102,6 +103,16 @@ func serve(args []string, stderr io.Writer) int {
 		broker, helper = b, []string{exe, "mcp-tools"}
 	}
 
+	var images media.Resolver
+	if cfg.Images.Enabled {
+		images = media.NewHTTPResolver(media.Options{
+			MaxBytes:             cfg.Images.MaxBytes,
+			FetchURLs:            cfg.Images.FetchURLs,
+			AllowPrivateNetworks: cfg.Images.AllowPrivateNetworks,
+			Timeout:              time.Duration(cfg.Images.FetchTimeoutSeconds) * time.Second,
+		})
+	}
+
 	// Wiring: every component below is used through its interface.
 	limiter := runner.NewFIFOLimiter(cfg.MaxConcurrent, cfg.MaxQueue, time.Duration(cfg.QueueTimeoutSeconds)*time.Second)
 	collector := stats.NewCollector(string(cfg.AuthMode), limiter, sink)
@@ -114,6 +125,7 @@ func serve(args []string, stderr io.Writer) int {
 		Limiter:  limiter,
 		Recorder: collector,
 		Broker:   broker,
+		Images:   images,
 		Logger:   log,
 	}, turn.Settings{
 		Binary:          cfg.Binary,
@@ -124,6 +136,7 @@ func serve(args []string, stderr io.Writer) int {
 		ToolHelper:      helper,
 		ToolWaitTimeout: time.Duration(cfg.ClientTools.WaitTimeoutSeconds) * time.Second,
 		ToolBatchWindow: time.Duration(cfg.ClientTools.BatchWindowMs) * time.Millisecond,
+		MaxImages:       cfg.Images.MaxCount,
 	})
 	srv := server.New(server.Options{
 		Config: cfg,

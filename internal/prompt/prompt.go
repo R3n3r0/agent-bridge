@@ -16,7 +16,7 @@ const MaxBytes = 9 << 20
 
 // Errors returned by Parse and Build.
 var (
-	ErrUnsupportedContent = errors.New("only text content parts are supported")
+	ErrUnsupportedContent = errors.New("only text and image_url content parts are supported")
 	ErrNoMessages         = errors.New("messages must not be empty")
 	ErrNoUserMessage      = errors.New("messages must contain at least one user message")
 	ErrNoCurrentRequest   = errors.New("the last assistant message must be followed by at least one user or tool message")
@@ -66,23 +66,35 @@ type ToolCall struct {
 	Arguments string
 }
 
-// Message is a message with its content reduced to text.
+// Part is one element of a message content: text or an image reference.
+type Part struct {
+	Text     string
+	ImageURL string // data: or http(s) URL; empty for text parts
+}
+
+// Message is a message with its content reduced to text. Parts is set only
+// when the content contains images, and keeps text and images in order.
 type Message struct {
 	Role       string
 	Text       string
+	Parts      []Part
 	ToolCalls  []ToolCall // assistant only
 	ToolCallID string     // tool only
 	Name       string     // tool only: function name, if known
 }
 
 type contentPart struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type     string `json:"type"`
+	Text     string `json:"text"`
+	ImageURL *struct {
+		URL string `json:"url"`
+	} `json:"image_url"`
 }
 
 // Parse validates roles and reduces each message content to plain text.
-// Content may be a string, null, or an array of parts; only "text" parts are
-// accepted. Legacy "function" messages are treated as tool messages.
+// Content may be a string, null, or an array of "text" and "image_url"
+// parts; other part types are rejected. Legacy "function" messages are
+// treated as tool messages.
 func Parse(raw []RawMessage) ([]Message, error) {
 	if len(raw) == 0 {
 		return nil, ErrNoMessages
@@ -99,11 +111,11 @@ func Parse(raw []RawMessage) ([]Message, error) {
 		default:
 			return nil, fmt.Errorf("%w %q at messages[%d]", ErrInvalidRole, m.Role, i)
 		}
-		text, err := contentText(m.Content)
+		text, parts, err := contentParts(m.Content)
 		if err != nil {
 			return nil, fmt.Errorf("messages[%d]: %w", i, err)
 		}
-		msg := Message{Role: role, Text: text}
+		msg := Message{Role: role, Text: text, Parts: parts}
 		switch role {
 		case RoleUser:
 			hasUser = true
@@ -130,34 +142,92 @@ func Parse(raw []RawMessage) ([]Message, error) {
 	return out, nil
 }
 
-func contentText(c json.RawMessage) (string, error) {
+// contentParts returns the text of a content and, when it contains images,
+// its parts in order.
+func contentParts(c json.RawMessage) (string, []Part, error) {
 	c = bytes.TrimSpace(c)
 	if len(c) == 0 || bytes.Equal(c, []byte("null")) {
-		return "", nil
+		return "", nil, nil
 	}
 	switch c[0] {
 	case '"':
 		var s string
 		if err := json.Unmarshal(c, &s); err != nil {
-			return "", err
+			return "", nil, err
 		}
-		return s, nil
+		return s, nil, nil
 	case '[':
-		var parts []contentPart
-		if err := json.Unmarshal(c, &parts); err != nil {
-			return "", err
+		var raw []contentPart
+		if err := json.Unmarshal(c, &raw); err != nil {
+			return "", nil, err
 		}
-		texts := make([]string, 0, len(parts))
-		for _, p := range parts {
-			if p.Type != "text" {
-				return "", fmt.Errorf("%w: part of type %q", ErrUnsupportedContent, p.Type)
+		texts := make([]string, 0, len(raw))
+		parts := make([]Part, 0, len(raw))
+		images := false
+		for _, p := range raw {
+			switch p.Type {
+			case "text":
+				texts = append(texts, p.Text)
+				parts = append(parts, Part{Text: p.Text})
+			case "image_url":
+				if p.ImageURL == nil || p.ImageURL.URL == "" {
+					return "", nil, errors.New("image_url part without url")
+				}
+				parts = append(parts, Part{ImageURL: p.ImageURL.URL})
+				images = true
+			default:
+				return "", nil, fmt.Errorf("%w: part of type %q", ErrUnsupportedContent, p.Type)
 			}
-			texts = append(texts, p.Text)
 		}
-		return strings.Join(texts, "\n"), nil
+		if !images {
+			parts = nil
+		}
+		return strings.Join(texts, "\n"), parts, nil
 	default:
-		return "", errors.New("content must be a string or an array of parts")
+		return "", nil, errors.New("content must be a string or an array of parts")
 	}
+}
+
+// CountImages returns the number of image parts in msgs.
+func CountImages(msgs []Message) int {
+	n := 0
+	for _, m := range msgs {
+		for _, p := range m.Parts {
+			if p.ImageURL != "" {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// Prompt is the text sent to the CLI and the images it references, in the
+// order of their "[image N]" placeholders.
+type Prompt struct {
+	Text   string
+	Images []string
+}
+
+// renderer renders message contents, replacing images with numbered
+// placeholders and collecting their URLs.
+type renderer struct {
+	images []string
+}
+
+func (r *renderer) content(m Message) string {
+	if len(m.Parts) == 0 {
+		return m.Text
+	}
+	out := make([]string, 0, len(m.Parts))
+	for _, p := range m.Parts {
+		if p.ImageURL == "" {
+			out = append(out, p.Text)
+			continue
+		}
+		r.images = append(r.images, p.ImageURL)
+		out = append(out, fmt.Sprintf("[image %d]", len(r.images)))
+	}
+	return strings.Join(out, "\n")
 }
 
 // lastAssistant returns the index of the last assistant message, or -1.
@@ -232,8 +302,16 @@ func Build(msgs []Message, resumed bool) (string, error) {
 	return BuildWith(msgs, Options{Resumed: resumed})
 }
 
-// BuildWith returns the prompt for a turn.
+// BuildWith returns the prompt text for a turn; images are rendered as
+// placeholders only. Use BuildPrompt to also get the images.
 func BuildWith(msgs []Message, o Options) (string, error) {
+	p, err := BuildPrompt(msgs, o)
+	return p.Text, err
+}
+
+// BuildPrompt returns the prompt for a turn and the images it references.
+// With Resumed, only the images of the new messages are included.
+func BuildPrompt(msgs []Message, o Options) (Prompt, error) {
 	if o.OmitInstructions {
 		kept := make([]Message, 0, len(msgs))
 		for _, m := range msgs {
@@ -243,40 +321,41 @@ func BuildWith(msgs []Message, o Options) (string, error) {
 		}
 		msgs = kept
 	}
-	resumed := o.Resumed
 	current := Current(msgs)
 	if len(current) == 0 {
-		return "", ErrNoCurrentRequest
+		return Prompt{}, ErrNoCurrentRequest
 	}
-	var p string
-	if resumed {
-		p = renderCurrent(current)
+	r := &renderer{}
+	var text string
+	if o.Resumed {
+		text = r.renderCurrent(current)
 	} else {
-		p = buildNew(msgs, current)
+		text = r.buildNew(msgs, current)
 	}
-	if len(p) > MaxBytes {
-		return "", ErrTooLarge
+	if len(text) > MaxBytes {
+		return Prompt{}, ErrTooLarge
 	}
-	return p, nil
+	return Prompt{Text: text, Images: r.images}, nil
 }
 
-func renderCurrent(current []Message) string {
+func (r *renderer) renderCurrent(current []Message) string {
 	parts := make([]string, len(current))
 	for i, m := range current {
 		if m.Role == RoleTool {
-			parts[i] = renderTool(m)
+			parts[i] = r.renderTool(m)
 		} else {
-			parts[i] = m.Text
+			parts[i] = r.content(m)
 		}
 	}
 	return strings.Join(parts, "\n\n")
 }
 
-func renderTool(m Message) string {
+func (r *renderer) renderTool(m Message) string {
+	text := r.content(m)
 	if m.ToolCallID == "" && m.Name == "" {
-		return "<tool>" + m.Text + "</tool>"
+		return "<tool>" + text + "</tool>"
 	}
-	return fmt.Sprintf("<tool tool_call_id=%q name=%q>%s</tool>", m.ToolCallID, m.Name, m.Text)
+	return fmt.Sprintf("<tool tool_call_id=%q name=%q>%s</tool>", m.ToolCallID, m.Name, text)
 }
 
 func renderAssistant(m Message) string {
@@ -297,10 +376,10 @@ func renderAssistant(m Message) string {
 	return b.String()
 }
 
-func buildNew(msgs []Message, current []Message) string {
+func (r *renderer) buildNew(msgs []Message, current []Message) string {
 	instructions := Instructions(msgs)
 	if len(msgs) == 1 && msgs[0].Role == RoleUser {
-		return msgs[0].Text
+		return r.content(msgs[0])
 	}
 
 	last := lastAssistant(msgs)
@@ -313,9 +392,9 @@ func buildNew(msgs []Message, current []Message) string {
 		case RoleAssistant:
 			history.WriteString(renderAssistant(m))
 		case RoleTool:
-			history.WriteString(renderTool(m))
+			history.WriteString(r.renderTool(m))
 		default:
-			fmt.Fprintf(&history, "<%s>%s</%s>", m.Role, m.Text, m.Role)
+			fmt.Fprintf(&history, "<%s>%s</%s>", m.Role, r.content(m), m.Role)
 		}
 		history.WriteString("\n")
 	}
@@ -327,6 +406,6 @@ func buildNew(msgs []Message, current []Message) string {
 	if history.Len() > 0 {
 		sections = append(sections, "<conversation_history>\n"+history.String()+"</conversation_history>")
 	}
-	sections = append(sections, "<current_request>\n"+renderCurrent(current)+"\n</current_request>")
+	sections = append(sections, "<current_request>\n"+r.renderCurrent(current)+"\n</current_request>")
 	return strings.Join(sections, "\n\n")
 }
