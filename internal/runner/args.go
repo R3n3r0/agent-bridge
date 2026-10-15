@@ -40,7 +40,14 @@ type Spec struct {
 	// StructuredInput sends the prompt as a stream-json user message on
 	// stdin (see UserMessage) instead of plain text; needed for images.
 	StructuredInput bool
+	// Effort is the reasoning effort (--effort); empty keeps the default.
+	Effort string
+	// JSONSchema asks for validated structured output (--json-schema).
+	JSONSchema string
 }
+
+// Effort levels accepted by the CLI.
+var EffortLevels = []string{"low", "medium", "high", "xhigh", "max"}
 
 // ClientToolsServer is the MCP server name used for client functions; the
 // CLI names the tools "mcp__<server>__<function>".
@@ -71,6 +78,9 @@ func Args(s Spec) []string {
 	}
 	if s.Model != "" {
 		args = append(args, "--model", s.Model)
+	}
+	if s.Effort != "" {
+		args = append(args, "--effort", s.Effort)
 	}
 	if s.SystemPrompt != "" {
 		if s.SystemPromptMode == config.PromptModeReplace {
@@ -113,6 +123,9 @@ func Args(s Spec) []string {
 	if s.ClientTools != "" {
 		args = append(args, "--mcp-config", s.ClientTools)
 	}
+	if s.JSONSchema != "" {
+		args = append(args, "--json-schema", s.JSONSchema)
+	}
 	if s.ResumeID != "" {
 		args = append(args, "--resume", s.ResumeID)
 	}
@@ -134,6 +147,22 @@ func Env(base []string, mode config.AuthMode) []string {
 		out = append(out, kv)
 	}
 	return out
+}
+
+// WithMaxOutputTokens limits the output tokens of each model request of the
+// process; n <= 0 leaves env unchanged. It replaces any inherited value.
+func WithMaxOutputTokens(env []string, n int) []string {
+	if n <= 0 {
+		return env
+	}
+	const key = "CLAUDE_CODE_MAX_OUTPUT_TOKENS"
+	out := make([]string, 0, len(env)+1)
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, key+"=") {
+			out = append(out, kv)
+		}
+	}
+	return append(out, key+"="+strconv.Itoa(n))
 }
 
 // WithClientToolsTimeout sets the CLI's MCP tool timeout to d unless the

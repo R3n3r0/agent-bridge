@@ -2,7 +2,7 @@
 
 **English** · [Italiano](specification.it.md)
 
-Oct 15, 2026 · @Someone — **rev. 1.3**: OpenAI function calling (section 13), use from external orchestrators (section 13.8), images (section 15), configurable model prefix and GPL license (section 14)
+Oct 15, 2026 · @Someone — **rev. 1.4**: OpenAI function calling (section 13), use from external orchestrators (section 13.8), images (section 15), generation parameters (section 16), configurable model prefix and GPL license (section 14)
 
 ## 1. Overview and goals
 
@@ -48,7 +48,7 @@ The following constraints derive from the [Claude Code Legal and compliance](htt
 
 Non-goals for v1.0:
 
-- Support for the OpenAI parameters `response_format`, `temperature`, `top_p`, `n`, `stop`, `logprobs`: they are accepted and ignored. (`tools`, `tool_choice`, `parallel_tool_calls`, `functions` and `function_call` are supported instead: section 13.)
+- Support for the OpenAI parameters `temperature`, `top_p`, `seed`, `logprobs`, `presence_penalty`, `frequency_penalty`, `logit_bias`: the CLI has no equivalent, so they are accepted and ignored. (`reasoning_effort`, `response_format`, `max_tokens`, `stop` and `n` are supported or emulated: section 16.) (`tools`, `tool_choice`, `parallel_tool_calls`, `functions` and `function_call` are supported instead: section 13.)
 - Hard constraints on `tool_choice`, `parallel_tool_calls: false` and on the functions' `parameters`/`strict` schemas: they are rendered as instructions to the model, not enforced (section 13.6).
 - The `/v1/responses` and `/v1/embeddings` APIs, image generation, audio input and output.
 - Non-Claude models: the server does not act as a router to other providers.
@@ -149,7 +149,7 @@ The server implements the subset of the OpenAI Chat Completions API required by 
 
 ### 5.1 `POST /v1/chat/completions` request
 
-Fields used: `model` (required, agent name or `bridge/<model>`), `messages` (required, at least one `user` message; after the last `assistant` message there must be at least one `user` or `tool` message), `stream` (bool), `stream_options.include_usage` (bool), `user` (string, used as a fallback session key), `tools`, `tool_choice`, `parallel_tool_calls`, `functions`, `function_call` (section 13), `max_completion_tokens` / `max_tokens` (ignored, but accepted). Accepted roles: `system`, `developer`, `user`, `assistant` (also with `tool_calls` or `function_call` and null `content`), `tool` (with `tool_call_id`), `function` (deprecated, treated as `tool`). `content` can be a string, null or an array of parts; `type: "text"` and `type: "image_url"` parts are used (images: section 15), the others (audio, files) produce 400 `unsupported_content`. Any other field is ignored without error. Maximum body size 10 MB.
+Fields used: `model` (required, agent name or `bridge/<model>`), `messages` (required, at least one `user` message; after the last `assistant` message there must be at least one `user` or `tool` message), `stream` (bool), `stream_options.include_usage` (bool), `user` (string, used as a fallback session key), `tools`, `tool_choice`, `parallel_tool_calls`, `functions`, `function_call` (section 13), `max_completion_tokens` / `max_tokens`, `reasoning_effort`, `response_format`, `stop`, `n` (section 16). Accepted roles: `system`, `developer`, `user`, `assistant` (also with `tool_calls` or `function_call` and null `content`), `tool` (with `tool_call_id`), `function` (deprecated, treated as `tool`). `content` can be a string, null or an array of parts; `type: "text"` and `type: "image_url"` parts are used (images: section 15), the others (audio, files) produce 400 `unsupported_content`. Any other field is ignored without error. Maximum body size 10 MB.
 
 Optional incoming headers:
 
@@ -266,7 +266,7 @@ Each turn is a separate `claude` process, started with `os/exec` without a shell
 
 ### 7.1 Arguments
 
-Fixed order: `-p`, `--output-format stream-json`, `--verbose`, `--input-format stream-json` (only when the request has images, section 15), then only the flags for fields that are set: `--model`, `--append-system-prompt` or `--system-prompt` (with the agent's system prompt, the request's `system` messages if `system_messages` is `append`/`replace`, and the instructions derived from `tool_choice`), `--tools ""` (chat-only), `--allowedTools` (entries joined by commas, plus `mcp__functions` if there are client functions), `--disallowedTools`, `--permission-mode`, `--max-turns`, `--add-dir` (repeated), the agent's `--mcp-config`, the client functions' `--mcp-config` (section 13), `--resume`. No positional arguments: the prompt goes on stdin.
+Fixed order: `-p`, `--output-format stream-json`, `--verbose`, `--input-format stream-json` (only when the request has images, section 15), then only the flags for fields that are set: `--model`, `--effort` (section 16), `--append-system-prompt` or `--system-prompt` (with the agent's system prompt, the request's `system` messages if `system_messages` is `append`/`replace`, and the instructions derived from `tool_choice`), `--tools ""` (chat-only), `--allowedTools` (entries joined by commas, plus `mcp__functions` if there are client functions), `--disallowedTools`, `--permission-mode`, `--max-turns`, `--add-dir` (repeated), the agent's `--mcp-config`, the client functions' `--mcp-config` (section 13), `--json-schema` (section 16), `--resume`. No positional arguments: the prompt goes on stdin.
 
 Before v1.0, each flag must be checked against the [CLI documentation](https://code.claude.com/docs/en/cli-reference) for the minimum supported version, which `doctor` checks with `claude --version`. The minimum version is a constant in the code, documented in the README.
 
@@ -445,6 +445,7 @@ Go program in `testdata/fakecli`, compiled by the tests into a temporary directo
 8. Client functions: validation of `tools`/`tool_choice`/`functions`, rendering of calls and results in the prompt, arguments and environment with functions (also in chat-only), MCP protocol (`initialize`, `tools/list`, `tools/call`, errors), broker (token, deregistration), `turn` service with fakes of the interfaces: single call, parallel, sequential with `parallel_tool_calls: false`, missing result, wait timeout and restart from the history, `tool_choice`.
 9. External orchestrators: `system_messages` (`prompt`, `append`, `replace`, with and without the agent's system prompt), `stateless` mode (process closed, `tool_calls` outcome, session deleted, next step from the history), resolution of `bridge/<model>` and invalid names.
 10. Images: `image_url` parsing and `[image N]` placeholders (new and resumed sessions), stream-json user message with image blocks, `data:` URLs, format detection, size and count limits, refusal of non-public addresses, downloads, `images.enabled: false`.
+11. Generation parameters: validation of `n`, `stop`, `max_tokens`/`max_completion_tokens`, `reasoning_effort`, `response_format`; stop truncation; `--effort`, `--json-schema` and `CLAUDE_CODE_MAX_OUTPUT_TOKENS` passed to the process; structured output as content and its failures.
 
 ### 11.3 Integration tests (with `httptest` and `fakecli`)
 
@@ -460,6 +461,7 @@ Go program in `testdata/fakecli`, compiled by the tests into a temporary directo
 10. Function calling over HTTP: parallel calls in a single response with `content: null`, streaming with `delta.tool_calls`, deprecated `functions` format, results arriving after the wait timeout (new process with the full history).
 11. External orchestrators over HTTP: `X-Agent-Bridge-Tool-Mode: stateless` header and `client_tools.mode` key, `X-Agent-Bridge-System-Mode` header and `system_messages` key, `bridge/<model>` model in the request and in `GET /v1/models/{id}`.
 12. Images over HTTP: `data:` and `http(s)` URLs in non-stream and stream requests, errors before any process starts, limits, official `openai-go` client with `ImageContentPart`.
+13. Generation parameters over HTTP: `n` choices in JSON and streaming (indices, usage totals, no session resume, client functions stateless), errors failing the whole request, `stop`, `response_format`, official `openai-go` client with `N`, `ReasoningEffort` and `ResponseFormat`.
 
 ### 11.4 Manual verification before each release
 
@@ -509,6 +511,8 @@ The work is divided into five milestones, each releasable as a preview version; 
 | 32 | M8 Images and publication (v1.3) | `image_url` input, `images` settings, `media.Resolver` | 15 | 6 |
 | 33 | M8 Images and publication (v1.3) | Configurable model prefix, neutral default | 2, 4.4 | 3 |
 | 34 | M8 Images and publication (v1.3) | GPL v3 license | 10.4 | — |
+| 35 | M9 Generation parameters (v1.4) | `reasoning_effort`, `response_format`, `max_tokens` mapped to the CLI | 16 | 6 |
+| 36 | M9 Generation parameters (v1.4) | `stop` and `n` emulation, including streaming | 16 | 35 |
 
 For implementers (a person or an agent on GitHub): each PR closes a single issue, includes the section 11 tests that concern it and introduces no runtime dependencies. When in doubt about the behavior of the Claude Code CLI, the official documentation prevails, and the discrepancy must be reported in the PR.
 
@@ -605,6 +609,7 @@ Recommended configuration for this scenario: `{"client_tools": {"mode": "statele
 | Model prefix | `claude-code/` | `bridge/`, configurable with `builtin_prefix` (4.4) | Product names must not use the "Claude Code" name (section 2) |
 | Images | Rejected (400) | Accepted as `image_url` parts (15) | Parity with OpenAI clients |
 | License | To be decided | GNU GPL v3 or later (10.4) | Owner's decision |
+| Generation parameters | All accepted and ignored | `reasoning_effort`, `response_format`, `max_tokens` mapped; `stop`, `n` emulated (16) | Use every option the CLI offers |
 
 ## 15. Images
 
@@ -628,3 +633,18 @@ Messages can contain `image_url` content parts, as in the OpenAI API, with any m
 ### 15.3 To verify on the real CLI (checklist 11.4)
 
 The exact stream-json input format for image blocks, the stdin limit with structured input, and the behavior with `--resume`.
+
+## 16. Generation parameters
+
+The bridge drives the CLI and never calls the model API itself (section 2), so it can honor only the OpenAI parameters the CLI can express. Two more are emulated.
+
+| OpenAI parameter | Mapping | Notes |
+| --- | --- | --- |
+| `reasoning_effort` | `--effort <level>` | `none` and `minimal` → `low`; `low`, `medium`, `high` unchanged; `xhigh` and `max` accepted as an extension. Other values → 400. Available levels depend on the model |
+| `response_format` | `text`: nothing. `json_object`: `--json-schema '{"type":"object"}'`. `json_schema`: `--json-schema` with `json_schema.schema` (compact, at most 64 KB) | The answer is the result's `structured_output`, compact, as `content`. Subtype `error_max_structured_output_retries`, or success without `structured_output` → 502 `claude_code_error`. `json_schema.name` and `strict` are accepted; the CLI always validates |
+| `max_completion_tokens`, `max_tokens` | Env `CLAUDE_CODE_MAX_OUTPUT_TOKENS` for the process (replacing any inherited value); `max_completion_tokens` wins | Positive integers only. Limits every model response of the turn, not the turn's total; `finish_reason` is not `length` |
+| `stop` | String or array of up to 4 non-empty strings; the final text is cut before the first occurrence of any of them | Emulated after generation. Not applied to `response_format` JSON, to streaming progress texts or to function-call arguments |
+| `n` | 1-8 independent turns in parallel, choice `i` from turn `i` | Every choice gets a fresh session key (no resume) and stateless client functions (section 13.8). Usage, turns and cost are summed, duration is the longest. Streaming: role chunks for all indices first, then each choice's final chunks as it completes. The first error cancels the other choices and fails the request. A rejection by `Admit` releases the choices already admitted (`turn.Service.Release`) |
+| `temperature`, `top_p`, `seed`, `logprobs`, `top_logprobs`, `presence_penalty`, `frequency_penalty`, `logit_bias` | — | Accepted and ignored: no CLI equivalent |
+
+To verify on the real CLI (checklist 11.4): `--effort` levels per model, the `structured_output` field and failure subtype with `-p --output-format stream-json`, and `CLAUDE_CODE_MAX_OUTPUT_TOKENS`.

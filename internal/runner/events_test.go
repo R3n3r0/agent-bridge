@@ -31,6 +31,11 @@ func TestParseLine(t *testing.T) {
 		t.Fatalf("result fields: %+v", r)
 	}
 
+	ev = ParseLine([]byte(`{"type":"result","subtype":"success","structured_output":{"a":1}}`))
+	if string(ev[0].Result.StructuredOutput) != `{"a":1}` {
+		t.Fatalf("structured output: %s", ev[0].Result.StructuredOutput)
+	}
+
 	for _, line := range []string{`not json`, `{"type":"result","num_turns":"x"}`} {
 		if ev := ParseLine([]byte(line)); len(ev) != 1 || ev[0].Kind != KindMalformed {
 			t.Fatalf("%s: %+v", line, ev)

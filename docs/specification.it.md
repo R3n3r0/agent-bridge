@@ -2,7 +2,7 @@
 
 [English](specification.md) · **Italiano**
 
-Oct 15, 2026 · @Someone — **rev. 1.3**: function calling OpenAI (sezione 13), uso da orchestratori esterni (sezione 13.8), immagini (sezione 15), prefisso dei modelli configurabile e licenza GPL (sezione 14)
+Oct 15, 2026 · @Someone — **rev. 1.4**: function calling OpenAI (sezione 13), uso da orchestratori esterni (sezione 13.8), immagini (sezione 15), parametri di generazione (sezione 16), prefisso dei modelli configurabile e licenza GPL (sezione 14)
 
 ## 1. Panoramica e obiettivi
 
@@ -48,7 +48,7 @@ I vincoli seguenti derivano dalla pagina [Legal and compliance di Claude Code](h
 
 Non obiettivi della v1.0:
 
-- Supporto ai parametri OpenAI `response_format`, `temperature`, `top_p`, `n`, `stop`, `logprobs`: vengono accettati e ignorati. (`tools`, `tool_choice`, `parallel_tool_calls`, `functions` e `function_call` sono invece supportati: sezione 13.)
+- Supporto ai parametri OpenAI `temperature`, `top_p`, `seed`, `logprobs`, `presence_penalty`, `frequency_penalty`, `logit_bias`: la CLI non ha equivalenti, quindi vengono accettati e ignorati. (`reasoning_effort`, `response_format`, `max_tokens`, `stop` e `n` sono supportati o emulati: sezione 16.) (`tools`, `tool_choice`, `parallel_tool_calls`, `functions` e `function_call` sono invece supportati: sezione 13.)
 - Vincoli rigidi su `tool_choice`, `parallel_tool_calls: false` e sugli schemi `parameters`/`strict` delle funzioni: sono resi come istruzioni al modello, non imposti (sezione 13.6).
 - API `/v1/responses`, `/v1/embeddings`, generazione di immagini, audio in ingresso e in uscita.
 - Modelli non Claude: il server non fa da router verso altri provider.
@@ -149,7 +149,7 @@ Il server implementa il sottoinsieme dell'API OpenAI Chat Completions necessario
 
 ### 5.1 Richiesta `POST /v1/chat/completions`
 
-Campi usati: `model` (obbligatorio, nome dell'agente o `bridge/<modello>`), `messages` (obbligatorio, almeno un messaggio `user`; dopo l'ultimo messaggio `assistant` deve esserci almeno un messaggio `user` o `tool`), `stream` (bool), `stream_options.include_usage` (bool), `user` (string, usato come chiave di sessione di riserva), `tools`, `tool_choice`, `parallel_tool_calls`, `functions`, `function_call` (sezione 13), `max_completion_tokens` / `max_tokens` (ignorati, ma accettati). Ruoli accettati: `system`, `developer`, `user`, `assistant` (anche con `tool_calls` o `function_call` e `content` nullo), `tool` (con `tool_call_id`), `function` (deprecato, trattato come `tool`). Il `content` può essere stringa, nullo o array di parti; delle parti si usano quelle `type: "text"` e `type: "image_url"` (immagini: sezione 15), le altre (audio, file) producono 400 `unsupported_content`. Ogni altro campo è ignorato senza errore. Corpo massimo 10 MB.
+Campi usati: `model` (obbligatorio, nome dell'agente o `bridge/<modello>`), `messages` (obbligatorio, almeno un messaggio `user`; dopo l'ultimo messaggio `assistant` deve esserci almeno un messaggio `user` o `tool`), `stream` (bool), `stream_options.include_usage` (bool), `user` (string, usato come chiave di sessione di riserva), `tools`, `tool_choice`, `parallel_tool_calls`, `functions`, `function_call` (sezione 13), `max_completion_tokens` / `max_tokens`, `reasoning_effort`, `response_format`, `stop`, `n` (sezione 16). Ruoli accettati: `system`, `developer`, `user`, `assistant` (anche con `tool_calls` o `function_call` e `content` nullo), `tool` (con `tool_call_id`), `function` (deprecato, trattato come `tool`). Il `content` può essere stringa, nullo o array di parti; delle parti si usano quelle `type: "text"` e `type: "image_url"` (immagini: sezione 15), le altre (audio, file) producono 400 `unsupported_content`. Ogni altro campo è ignorato senza errore. Corpo massimo 10 MB.
 
 Header opzionali in ingresso:
 
@@ -266,7 +266,7 @@ Ogni turno è un processo `claude` separato, avviato con `os/exec` senza shell, 
 
 ### 7.1 Argomenti
 
-Ordine fisso: `-p`, `--output-format stream-json`, `--verbose`, `--input-format stream-json` (solo se la richiesta contiene immagini, sezione 15), poi solo i flag dei campi valorizzati: `--model`, `--append-system-prompt` o `--system-prompt` (con il system prompt dell'agente, i messaggi `system` della richiesta se `system_messages` è `append`/`replace`, e le istruzioni derivate da `tool_choice`), `--tools ""` (solo chat), `--allowedTools` (voci unite da virgola, più `mcp__functions` se ci sono funzioni del client), `--disallowedTools`, `--permission-mode`, `--max-turns`, `--add-dir` (ripetuto), `--mcp-config` dell'agente, `--mcp-config` delle funzioni del client (sezione 13), `--resume`. Nessun argomento posizionale: il prompt va su stdin.
+Ordine fisso: `-p`, `--output-format stream-json`, `--verbose`, `--input-format stream-json` (solo se la richiesta contiene immagini, sezione 15), poi solo i flag dei campi valorizzati: `--model`, `--effort` (sezione 16), `--append-system-prompt` o `--system-prompt` (con il system prompt dell'agente, i messaggi `system` della richiesta se `system_messages` è `append`/`replace`, e le istruzioni derivate da `tool_choice`), `--tools ""` (solo chat), `--allowedTools` (voci unite da virgola, più `mcp__functions` se ci sono funzioni del client), `--disallowedTools`, `--permission-mode`, `--max-turns`, `--add-dir` (ripetuto), `--mcp-config` dell'agente, `--mcp-config` delle funzioni del client (sezione 13), `--json-schema` (sezione 16), `--resume`. Nessun argomento posizionale: il prompt va su stdin.
 
 Prima della v1.0, ogni flag va verificato contro la [documentazione della CLI](https://code.claude.com/docs/en/cli-reference) per la versione minima supportata, che `doctor` controlla con `claude --version`. La versione minima è una costante nel codice, documentata nel README.
 
@@ -445,6 +445,7 @@ Programma Go in `testdata/fakecli`, compilato dai test in una directory temporan
 8. Funzioni del client: validazione di `tools`/`tool_choice`/`functions`, rendering di chiamate e risultati nel prompt, argomenti e ambiente con funzioni (anche in solo chat), protocollo MCP (`initialize`, `tools/list`, `tools/call`, errori), broker (token, deregistrazione), servizio `turn` con fake delle interfacce: chiamata singola, parallela, sequenziale con `parallel_tool_calls: false`, risultato mancante, timeout di attesa e ripartenza dalla cronologia, `tool_choice`.
 9. Orchestratori esterni: `system_messages` (`prompt`, `append`, `replace`, con e senza system prompt dell'agente), modalità `stateless` (processo chiuso, esito `tool_calls`, sessione cancellata, passo successivo dalla cronologia), risoluzione di `bridge/<modello>` e nomi non validi.
 10. Immagini: parsing di `image_url` e segnaposto `[image N]` (sessioni nuove e riprese), messaggio utente stream-json con blocchi immagine, URL `data:`, riconoscimento del formato, limiti di dimensione e numero, rifiuto degli indirizzi non pubblici, download, `images.enabled: false`.
+11. Parametri di generazione: validazione di `n`, `stop`, `max_tokens`/`max_completion_tokens`, `reasoning_effort`, `response_format`; taglio per `stop`; `--effort`, `--json-schema` e `CLAUDE_CODE_MAX_OUTPUT_TOKENS` passati al processo; output strutturato come contenuto e relativi errori.
 
 ### 11.3 Test di integrazione (con `httptest` e `fakecli`)
 
@@ -460,6 +461,7 @@ Programma Go in `testdata/fakecli`, compilato dai test in una directory temporan
 10. Function calling via HTTP: chiamate parallele in un'unica risposta con `content: null`, streaming con `delta.tool_calls`, formato deprecato `functions`, risultati arrivati dopo il timeout di attesa (nuovo processo con cronologia completa).
 11. Orchestratori esterni via HTTP: header `X-Agent-Bridge-Tool-Mode: stateless` e chiave `client_tools.mode`, header `X-Agent-Bridge-System-Mode` e chiave `system_messages`, modello `bridge/<modello>` in richiesta e in `GET /v1/models/{id}`.
 12. Immagini via HTTP: URL `data:` e `http(s)` in richieste non stream e stream, errori prima dell'avvio di qualsiasi processo, limiti, client ufficiale `openai-go` con `ImageContentPart`.
+13. Parametri di generazione via HTTP: `n` scelte in JSON e in streaming (indici, totali di usage, nessuna ripresa di sessione, funzioni del client senza stato), errori che fanno fallire l\'intera richiesta, `stop`, `response_format`, client ufficiale `openai-go` con `N`, `ReasoningEffort` e `ResponseFormat`.
 
 ### 11.4 Verifica manuale prima di ogni release
 
@@ -509,6 +511,8 @@ Il lavoro si divide in cinque milestone, ognuna rilasciabile come versione di an
 | 32 | M8 Immagini e pubblicazione (v1.3) | Ingresso `image_url`, impostazioni `images`, `media.Resolver` | 15 | 6 |
 | 33 | M8 Immagini e pubblicazione (v1.3) | Prefisso dei modelli configurabile, default neutro | 2, 4.4 | 3 |
 | 34 | M8 Immagini e pubblicazione (v1.3) | Licenza GPL v3 | 10.4 | — |
+| 35 | M9 Parametri di generazione (v1.4) | `reasoning_effort`, `response_format`, `max_tokens` mappati sulla CLI | 16 | 6 |
+| 36 | M9 Parametri di generazione (v1.4) | Emulazione di `stop` e `n`, anche in streaming | 16 | 35 |
 
 Per chi implementa (persona o agente su GitHub): ogni PR chiude una sola issue, include i test della sezione 11 che la riguardano e non introduce dipendenze runtime. In caso di dubbio sul comportamento della CLI di Claude Code vale la documentazione ufficiale, e la discrepanza va segnalata nella PR.
 
@@ -605,6 +609,7 @@ Configurazione consigliata per questo scenario: `{"client_tools": {"mode": "stat
 | Prefisso dei modelli | `claude-code/` | `bridge/`, configurabile con `builtin_prefix` (4.4) | I nomi di prodotto non devono usare il nome "Claude Code" (sezione 2) |
 | Immagini | Rifiutate (400) | Accettate come parti `image_url` (15) | Parità con i client OpenAI |
 | Licenza | Da decidere | GNU GPL v3 o successiva (10.4) | Decisione del proprietario |
+| Parametri di generazione | Tutti accettati e ignorati | `reasoning_effort`, `response_format`, `max_tokens` mappati; `stop`, `n` emulati (16) | Usare ogni opzione offerta dalla CLI |
 
 ## 15. Immagini
 
@@ -628,3 +633,18 @@ I messaggi possono contenere parti di contenuto `image_url`, come nell'API OpenA
 ### 15.3 Da verificare sulla CLI reale (checklist 11.4)
 
 Il formato esatto dell'ingresso stream-json per i blocchi immagine, il limite di stdin con l'ingresso strutturato e il comportamento con `--resume`.
+
+## 16. Parametri di generazione
+
+Il bridge pilota la CLI e non chiama mai direttamente l'API del modello (sezione 2), quindi può rispettare solo i parametri OpenAI che la CLI sa esprimere. Altri due sono emulati.
+
+| Parametro OpenAI | Mappatura | Note |
+| --- | --- | --- |
+| `reasoning_effort` | `--effort <livello>` | `none` e `minimal` → `low`; `low`, `medium`, `high` invariati; `xhigh` e `max` accettati come estensione. Altri valori → 400. I livelli disponibili dipendono dal modello |
+| `response_format` | `text`: nulla. `json_object`: `--json-schema '{"type":"object"}'`. `json_schema`: `--json-schema` con `json_schema.schema` (compatto, al massimo 64 KB) | La risposta è lo `structured_output` del risultato, compatto, come `content`. Subtype `error_max_structured_output_retries`, o successo senza `structured_output` → 502 `claude_code_error`. `json_schema.name` e `strict` sono accettati; la CLI valida sempre |
+| `max_completion_tokens`, `max_tokens` | Variabile `CLAUDE_CODE_MAX_OUTPUT_TOKENS` per il processo (sostituisce un valore ereditato); prevale `max_completion_tokens` | Solo interi positivi. Limita ogni risposta del modello nel turno, non il totale del turno; `finish_reason` non diventa `length` |
+| `stop` | Stringa o array di al massimo 4 stringhe non vuote; il testo finale viene tagliato prima della prima occorrenza | Emulato dopo la generazione. Non applicato al JSON di `response_format`, ai testi di avanzamento in streaming né agli argomenti delle chiamate a funzione |
+| `n` | 1-8 turni indipendenti in parallelo, la scelta `i` dal turno `i` | Ogni scelta riceve una chiave di sessione nuova (nessuna ripresa) e funzioni del client senza stato (sezione 13.8). Usage, turni e costo sono sommati, la durata è la più lunga. Streaming: prima i chunk di ruolo per tutti gli indici, poi i chunk finali di ogni scelta appena completa. Il primo errore annulla le altre scelte e fa fallire la richiesta. Un rifiuto di `Admit` rilascia le scelte già ammesse (`turn.Service.Release`) |
+| `temperature`, `top_p`, `seed`, `logprobs`, `top_logprobs`, `presence_penalty`, `frequency_penalty`, `logit_bias` | — | Accettati e ignorati: nessun equivalente nella CLI |
+
+Da verificare sulla CLI reale (checklist 11.4): i livelli di `--effort` per modello, il campo `structured_output` e il subtype di errore con `-p --output-format stream-json`, e `CLAUDE_CODE_MAX_OUTPUT_TOKENS`.

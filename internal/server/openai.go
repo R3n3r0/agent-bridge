@@ -12,7 +12,8 @@ import (
 )
 
 // chatRequest holds the request fields the bridge uses. Every other field
-// (temperature, response_format, ...) is accepted and ignored.
+// (temperature, top_p, seed, logprobs, penalties, ...) is accepted and
+// ignored: the CLI has no equivalent.
 type chatRequest struct {
 	Model         string              `json:"model"`
 	Messages      []prompt.RawMessage `json:"messages"`
@@ -28,6 +29,14 @@ type chatRequest struct {
 	// Deprecated OpenAI function calling.
 	Functions    []functionDef   `json:"functions"`
 	FunctionCall json.RawMessage `json:"function_call"`
+
+	// Generation parameters mapped to the CLI or emulated (generation.go).
+	N                   *int            `json:"n"`
+	Stop                json.RawMessage `json:"stop"`
+	MaxTokens           *int            `json:"max_tokens"`
+	MaxCompletionTokens *int            `json:"max_completion_tokens"`
+	ReasoningEffort     string          `json:"reasoning_effort"`
+	ResponseFormat      json.RawMessage `json:"response_format"`
 }
 
 type functionDef struct {

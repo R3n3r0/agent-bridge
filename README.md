@@ -175,6 +175,23 @@ r = client.chat.completions.create(model="bridge/sonnet", messages=[{"role": "us
   ones are already in the session. `images.enabled: false` rejects images with
   400 `unsupported_content`.
 
+## Generation parameters
+
+The bridge drives the CLI, not the model API directly, so it supports the
+OpenAI parameters the CLI can express, and emulates two more:
+
+| OpenAI parameter | How | Fidelity |
+| --- | --- | --- |
+| `reasoning_effort` | CLI `--effort`; `none`/`minimal` become `low`, `xhigh` and `max` are accepted as an extension | Direct |
+| `response_format` (`json_object`, `json_schema`) | CLI `--json-schema`: the answer is validated against the schema and returned as compact JSON in `content` | Direct, validated |
+| `max_tokens`, `max_completion_tokens` | `CLAUDE_CODE_MAX_OUTPUT_TOKENS` for the process | Partial: limits every model response of the turn, not the turn total; `finish_reason` is not set to `length` |
+| `stop` (string or up to 4) | The final text is cut at the first occurrence | Emulated: the model still generates the full answer; never applied to `response_format` JSON or to progress texts |
+| `n` (1-8) | `n` independent processes in parallel, one choice each, also when streaming | Emulated: costs `n` times; no session resume, and client functions run stateless |
+| `temperature`, `top_p`, `seed`, `logprobs`, `presence_penalty`, `frequency_penalty`, `logit_bias` | — | Accepted and ignored: the CLI has no equivalent |
+
+If `response_format` cannot be satisfied (the CLI gives up after its retries,
+or ends without structured output), the request fails with 502.
+
 ## Agents on the server
 
 A JSON file maps a model name to an agent: model, system prompt, CLI tools,
@@ -362,8 +379,10 @@ mode and directory permissions; with `-live` it runs a test turn on Haiku.
 
 ## Known limitations
 
-- The OpenAI parameters `response_format`, `temperature`, `top_p`, `n`, `stop`,
-  `logprobs`, `max_tokens` are accepted and ignored.
+- `temperature`, `top_p`, `seed`, `logprobs`, `presence_penalty`,
+  `frequency_penalty` and `logit_bias` are accepted and ignored; `stop`, `n`
+  and `max_tokens` are emulated or partial (see
+  [Generation parameters](#generation-parameters)).
 - Function calling: a binding `tool_choice`, `parallel_tool_calls: false` and
   function schemas are instructions to the model, not enforced constraints.
 - Content parts other than text and `image_url` (audio, files) return 400
@@ -388,6 +407,11 @@ mode and directory permissions; with `-live` it runs a test turn on Haiku.
 **Does it support tools?** Yes, of two kinds: client functions through OpenAI
 function calling, and agent tools on the server (files, commands, search, MCP
 servers) for configured agents. See [Two ways to use it](#two-ways-to-use-it).
+
+**Why don't `temperature` and `top_p` work?** The bridge drives the Claude
+Code CLI, which has no option for them, and calling the model API directly
+would bypass the CLI (and, with a subscription, its terms). What the CLI does
+offer is mapped: see [Generation parameters](#generation-parameters).
 
 **Does it accept images?** Yes, `image_url` parts with `data:` or `http(s)`
 URLs, as in the OpenAI API. See [Images](#images).
@@ -419,7 +443,7 @@ the second gets 409 (`on_busy: reject`).
 
 Layered structure with interfaces and replaceable implementations:
 [docs/architecture.md](docs/architecture.md). Full technical specification,
-revision 1.3: [docs/specification.md](docs/specification.md).
+revision 1.4: [docs/specification.md](docs/specification.md).
 
 ```sh
 go test -race ./...          # uses a fake CLI binary, no credentials

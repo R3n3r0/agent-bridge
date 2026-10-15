@@ -45,11 +45,59 @@ func (s *sseWriter) comment(text string) {
 	s.flush()
 }
 
-func (s *sseWriter) chunk(d delta, finish *string) {
+func (s *sseWriter) chunk(d delta, finish *string) { s.chunkAt(0, d, finish) }
+
+func (s *sseWriter) chunkAt(index int, d delta, finish *string) {
 	s.data(chatChunk{
 		ID: s.id, Object: "chat.completion.chunk", Created: s.created, Model: s.model,
-		Choices: []chunkChoice{{Index: 0, Delta: d, FinishReason: finish}},
+		Choices: []chunkChoice{{Index: index, Delta: d, FinishReason: finish}},
 	})
+}
+
+// result writes the final chunks of one choice: content, tool or function
+// calls, and the chunk carrying finish_reason.
+func (s *sseWriter) result(index int, res *turn.Result, legacy bool) {
+	finish := res.FinishReason
+	if res.Content != "" || len(res.ToolCalls) == 0 {
+		s.chunkAt(index, delta{Content: res.Content}, nil)
+	}
+	switch {
+	case len(res.ToolCalls) > 0 && legacy:
+		c := res.ToolCalls[0]
+		s.chunkAt(index, delta{FunctionCall: &functionCall{Name: c.Name, Arguments: c.Arguments}}, nil)
+		finish = "function_call"
+	case len(res.ToolCalls) > 0:
+		for i, c := range res.ToolCalls {
+			s.chunkAt(index, delta{ToolCalls: []streamToolCall{{
+				Index: i, ID: c.ID, Type: "function",
+				Function: functionCall{Name: c.Name, Arguments: c.Arguments},
+			}}}, nil)
+		}
+	}
+	s.chunkAt(index, delta{}, &finish)
+}
+
+func (s *sseWriter) usage(u usage) {
+	s.data(chatChunk{
+		ID: s.id, Object: "chat.completion.chunk", Created: s.created, Model: s.model,
+		Choices: []chunkChoice{}, Usage: &u,
+	})
+}
+
+// start sets the SSE headers and sends the role chunk of every choice.
+func startSSE(w http.ResponseWriter, model string, choices int) *sseWriter {
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-cache")
+	h.Set("Connection", "keep-alive")
+	h.Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher, _ := w.(http.Flusher)
+	sse := &sseWriter{w: w, flusher: flusher, id: completionID(), model: model, created: time.Now().Unix()}
+	for i := 0; i < choices; i++ {
+		sse.chunkAt(i, delta{Role: prompt.RoleAssistant}, nil)
+	}
+	return sse
 }
 
 func (s *sseWriter) done() {
@@ -80,17 +128,7 @@ type execResult struct {
 // progress (comments or content), final content, finish chunk, optional
 // usage chunk, [DONE].
 func (s *Server) streamTurn(ctx context.Context, w http.ResponseWriter, call *chatCall) {
-	model := call.model
-	h := w.Header()
-	h.Set("Content-Type", "text/event-stream")
-	h.Set("Cache-Control", "no-cache")
-	h.Set("Connection", "keep-alive")
-	h.Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
-
-	flusher, _ := w.(http.Flusher)
-	sse := &sseWriter{w: w, flusher: flusher, id: completionID(), model: model, created: time.Now().Unix()}
-	sse.chunk(delta{Role: prompt.RoleAssistant}, nil)
+	sse := startSSE(w, call.model, 1)
 
 	progress := make(chan string, 16)
 	done := make(chan execResult, 1)
@@ -151,33 +189,62 @@ func (s *Server) streamTurn(ctx context.Context, w http.ResponseWriter, call *ch
 				sse.done()
 				return
 			}
-			finish := r.res.FinishReason
-			if r.res.Content != "" || len(r.res.ToolCalls) == 0 {
-				sse.chunk(delta{Content: r.res.Content}, nil)
-			}
-			switch {
-			case len(r.res.ToolCalls) > 0 && call.legacy:
-				c := r.res.ToolCalls[0]
-				sse.chunk(delta{FunctionCall: &functionCall{Name: c.Name, Arguments: c.Arguments}}, nil)
-				finish = "function_call"
-			case len(r.res.ToolCalls) > 0:
-				for i, c := range r.res.ToolCalls {
-					sse.chunk(delta{ToolCalls: []streamToolCall{{
-						Index: i, ID: c.ID, Type: "function",
-						Function: functionCall{Name: c.Name, Arguments: c.Arguments},
-					}}}, nil)
-				}
-			}
-			sse.chunk(delta{}, &finish)
+			sse.result(0, call.finalize(r.res), call.legacy)
 			if call.includeUsage {
-				u := usageOf(r.res)
-				sse.data(chatChunk{
-					ID: sse.id, Object: "chat.completion.chunk", Created: sse.created, Model: model,
-					Choices: []chunkChoice{}, Usage: &u,
-				})
+				sse.usage(usageOf(r.res))
 			}
 			sse.done()
 			return
 		}
 	}
+}
+
+// streamChoices streams n > 1 independent choices. Each choice's final
+// chunks are sent as soon as it completes; there are no progress texts,
+// only keepalive comments. An error in any choice cancels the others and
+// ends the stream with the error event.
+func (s *Server) streamChoices(ctx context.Context, w http.ResponseWriter, call *chatCall) {
+	sse := startSSE(w, call.model, len(call.turns))
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	type indexed struct {
+		i   int
+		res *turn.Result
+		err error
+	}
+	done := make(chan indexed, len(call.turns))
+	for i, t := range call.turns {
+		go func(i int, t *turn.Request) {
+			res, err := s.turns.Execute(ctx, t, nil)
+			done <- indexed{i, res, err}
+		}(i, t)
+	}
+	keepalive := time.NewTicker(s.keepalive)
+	defer keepalive.Stop()
+
+	results := make([]*turn.Result, 0, len(call.turns))
+	for remaining := len(call.turns); remaining > 0; {
+		select {
+		case <-keepalive.C:
+			sse.comment("keepalive")
+		case r := <-done:
+			remaining--
+			if r.err != nil {
+				cancel()
+				for ; remaining > 0; remaining-- {
+					<-done
+				}
+				sse.data(toAPIError(r.err).body())
+				sse.done()
+				return
+			}
+			results = append(results, r.res)
+			sse.result(r.i, call.finalize(r.res), call.legacy)
+		}
+	}
+	if call.includeUsage {
+		sse.usage(usageOf(sumResults(results)))
+	}
+	sse.done()
 }

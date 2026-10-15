@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-First complete implementation of the specification ([docs/specification.md](docs/specification.md), rev. 1.3):
+First complete implementation of the specification ([docs/specification.md](docs/specification.md), rev. 1.4):
 
 - OpenAI-compatible API: `POST /v1/chat/completions` (JSON and SSE), `GET /v1/models`, `GET /v1/models/{id}`.
 - Chat-only built-in models (`bridge/opus`, `bridge/sonnet`, `bridge/haiku`, `bridge/<model>`)
@@ -22,6 +22,9 @@ First complete implementation of the specification ([docs/specification.md](docs
   `stats.Recorder`/`Reporter`/`UsageSink`, `tools.Broker`).
 - Image input: `image_url` parts with `data:` and `http(s)` URLs, sent to the CLI as image blocks; downloads
   refuse non-public addresses; `images` settings.
+- Generation parameters: `reasoning_effort` (`--effort`), `response_format` with validated structured output
+  (`--json-schema`), `max_tokens`/`max_completion_tokens` (`CLAUDE_CODE_MAX_OUTPUT_TOKENS`); `stop` and `n` (1-8,
+  also streaming) emulated. `temperature`, `top_p` and similar remain ignored: the CLI has no equivalent.
 - Neutral, configurable prefix for zero-config models (`builtin_prefix`, default `bridge/`).
 - Documentation in English, with an Italian version of every document (`*.it.md`).
 - Licensed under the GNU GPL v3 or later.

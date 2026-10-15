@@ -38,6 +38,13 @@ Environment without `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`, logged in wit
 - [ ] `X-Agent-Bridge-System-Mode: replace`: the behavior follows the request's `system` message.
 - [ ] Model `bridge/<full name>` accepted by the CLI.
 
+## Generation parameters
+
+- [ ] `reasoning_effort: "low"` and `"high"`: `--effort` accepted by the CLI for the chosen model.
+- [ ] `response_format` `json_schema`: the answer is the validated JSON; an impossible schema returns 502.
+- [ ] `max_completion_tokens: 50`: the answer is short (`CLAUDE_CODE_MAX_OUTPUT_TOKENS` honored).
+- [ ] `n: 2` with and without `stream`: two independent choices.
+
 ## Images
 
 - [ ] `examples/python/images.py` with a PNG and a JPEG: the answer describes the image (stream-json input with image blocks accepted by the CLI).

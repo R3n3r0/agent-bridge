@@ -3,6 +3,7 @@ package turn
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
@@ -282,5 +283,36 @@ func TestAPIKeySourceWarning(t *testing.T) {
 	}
 	if !strings.Contains(f.logs.String(), "level=ERROR") {
 		t.Fatal("no error logged")
+	}
+}
+
+func TestStructuredOutputAndMaxTokens(t *testing.T) {
+	outcomes := []*runner.Outcome{
+		{Result: &runner.ResultEvent{Subtype: runner.SubtypeSuccess, Result: "ignored text", StructuredOutput: json.RawMessage(`{ "a" : 1 }`)}},
+		{Result: &runner.ResultEvent{Subtype: runner.SubtypeSuccess, Result: "no json"}},
+		{Result: &runner.ResultEvent{Subtype: runner.SubtypeStructuredOutputFail, IsError: true}},
+	}
+	f := newFixture(t, config.OnBusyWait, func(n int, req runner.Request) (*runner.Outcome, error) {
+		return outcomes[n-1], nil
+	})
+	req := request(user("x"))
+	req.Spec.JSONSchema = `{"type":"object"}`
+	req.MaxOutputTokens = 256
+	res, err := f.svc.Execute(context.Background(), req, nil)
+	if err != nil || res.Content != `{"a":1}` {
+		t.Fatalf("structured %+v %v", res, err)
+	}
+	call := f.exec.calls[0]
+	if argAfter(call.Args, "--json-schema") != `{"type":"object"}` || !strings.Contains(strings.Join(call.Env, " "), "CLAUDE_CODE_MAX_OUTPUT_TOKENS=256") {
+		t.Fatalf("call %q %q", call.Args, call.Env)
+	}
+	for _, want := range []string{"without structured output", "matching the JSON schema"} {
+		r := request(user("x"))
+		r.Spec.JSONSchema = `{"type":"object"}`
+		r.SessionKey = want
+		_, err := f.svc.Execute(context.Background(), r, nil)
+		if kindOf(t, err) != KindUpstream || !strings.Contains(err.Error(), want) {
+			t.Fatalf("got %v", err)
+		}
 	}
 }

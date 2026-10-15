@@ -17,10 +17,12 @@
 package turn
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -64,6 +66,9 @@ type Service interface {
 	// error the caller must call Execute with the same request, which
 	// releases whatever Admit acquired.
 	Admit(req *Request) error
+	// Release gives back what Admit acquired, for a request that will not
+	// be executed after all. It is a no-op when there is nothing to release.
+	Release(req *Request)
 	// Execute runs the turn, or resumes the turn waiting for the function
 	// results contained in req. Errors are always of type *Error.
 	Execute(ctx context.Context, req *Request, progress ProgressFunc) (*Result, error)
@@ -106,6 +111,8 @@ type Request struct {
 	// returned: the client owns the conversation state and the next
 	// request starts a new process from the history it sends.
 	StatelessTools bool
+	// MaxOutputTokens limits each model request of the turn (0 = default).
+	MaxOutputTokens int
 	// SystemMode is how system and developer messages reach the model:
 	// config.SystemAsPrompt (default), SystemAppend or SystemReplace.
 	SystemMode string
@@ -241,6 +248,14 @@ func (s *service) Admit(req *Request) error {
 		return newError(KindQueueFull, "too many requests waiting, retry later")
 	}
 	return nil
+}
+
+func (s *service) Release(req *Request) {
+	if req.unlock != nil {
+		req.unlock()
+		req.unlock = nil
+	}
+	req.attach = nil
 }
 
 func (s *service) Execute(ctx context.Context, req *Request, progress ProgressFunc) (*Result, error) {
@@ -739,8 +754,18 @@ func (lt *liveTurn) classify(out *runner.Outcome, runErr error) (*Result, *Error
 	switch {
 	case runErr == nil:
 		res := out.Result
+		content := res.Result
 		var finish, outcome string
 		switch {
+		case res.Subtype == runner.SubtypeStructuredOutputFail:
+			return nil, lt.finish(stats.OutcomeError, newError(KindUpstream, "the model could not produce output matching the JSON schema"))
+		case res.Subtype == runner.SubtypeSuccess && !res.IsError && lt.req.Spec.JSONSchema != "":
+			structured, err := compactJSON(res.StructuredOutput)
+			if err != nil {
+				return nil, lt.finish(stats.OutcomeError, newError(KindUpstream, "the turn ended without structured output"))
+			}
+			content = structured
+			finish, outcome = FinishStop, stats.OutcomeSuccess
 		case res.Subtype == runner.SubtypeSuccess && !res.IsError:
 			finish, outcome = FinishStop, stats.OutcomeSuccess
 		case res.Subtype == runner.SubtypeMaxTurns:
@@ -755,7 +780,7 @@ func (lt *liveTurn) classify(out *runner.Outcome, runErr error) (*Result, *Error
 		lt.finish(outcome, nil)
 		promptTokens := res.Usage.InputTokens + res.Usage.CacheCreationTokens + res.Usage.CacheReadTokens
 		return &Result{
-			Content:          res.Result,
+			Content:          content,
 			FinishReason:     finish,
 			PromptTokens:     promptTokens,
 			CompletionTokens: res.Usage.OutputTokens,
@@ -837,6 +862,7 @@ func (lt *liveTurn) exec(in input, resumeID string) (*runner.Outcome, error) {
 	if spec.ClientTools != "" {
 		env = runner.WithClientToolsTimeout(env, lt.req.Agent.Timeout)
 	}
+	env = runner.WithMaxOutputTokens(env, lt.req.MaxOutputTokens)
 	req := runner.Request{
 		Binary:  s.Binary,
 		Args:    runner.Args(spec),
@@ -928,6 +954,18 @@ func instructionsHash(msgs []prompt.Message) string {
 	}
 	sum := sha256.Sum256([]byte(text))
 	return hex.EncodeToString(sum[:8])
+}
+
+// compactJSON returns raw as compact JSON; empty or null is an error.
+func compactJSON(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", errors.New("no structured output")
+	}
+	var b bytes.Buffer
+	if err := json.Compact(&b, raw); err != nil {
+		return "", err
+	}
+	return b.String(), nil
 }
 
 func randomHex(n int) string {

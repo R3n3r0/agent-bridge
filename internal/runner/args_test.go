@@ -33,8 +33,11 @@ func TestArgsEveryField(t *testing.T) {
 		MCPConfig:        "/m.json",
 		ResumeID:         "sess-1",
 	}
+	s.Effort = "high"
+	s.JSONSchema = `{"type":"object"}`
 	want := append(append([]string{}, base...),
 		"--model", "opus",
+		"--effort", "high",
 		"--append-system-prompt", "be careful",
 		"--allowedTools", "Read,Bash(git *)",
 		"--disallowedTools", "WebFetch,Write",
@@ -42,6 +45,7 @@ func TestArgsEveryField(t *testing.T) {
 		"--max-turns", "4",
 		"--add-dir", "/a", "--add-dir", "/b",
 		"--mcp-config", "/m.json",
+		"--json-schema", `{"type":"object"}`,
 		"--resume", "sess-1",
 	)
 	if got := Args(s); !reflect.DeepEqual(got, want) {
@@ -174,5 +178,16 @@ func TestStructuredInput(t *testing.T) {
 		c[1].Text != "[image 1]" || c[2].Type != "image" || c[2].Source.Type != "base64" ||
 		c[2].Source.MediaType != "image/png" || c[2].Source.Data != "AQID" {
 		t.Fatalf("message %+v", msg)
+	}
+}
+
+func TestWithMaxOutputTokens(t *testing.T) {
+	env := []string{"A=1", "CLAUDE_CODE_MAX_OUTPUT_TOKENS=5"}
+	got := WithMaxOutputTokens(env, 100)
+	if !reflect.DeepEqual(got, []string{"A=1", "CLAUDE_CODE_MAX_OUTPUT_TOKENS=100"}) {
+		t.Fatalf("got %q", got)
+	}
+	if got := WithMaxOutputTokens(env, 0); !reflect.DeepEqual(got, env) {
+		t.Fatalf("zero changed env: %q", got)
 	}
 }

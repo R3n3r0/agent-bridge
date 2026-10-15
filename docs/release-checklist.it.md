@@ -38,6 +38,13 @@ Ambiente senza `ANTHROPIC_API_KEY` né `ANTHROPIC_AUTH_TOKEN`, login fatto con l
 - [ ] `X-Agent-Bridge-System-Mode: replace`: il comportamento segue il messaggio `system` della richiesta.
 - [ ] Modello `bridge/<nome completo>` accettato dalla CLI.
 
+## Parametri di generazione
+
+- [ ] `reasoning_effort: "low"` e `"high"`: `--effort` accettato dalla CLI per il modello scelto.
+- [ ] `response_format` `json_schema`: la risposta è il JSON validato; uno schema impossibile restituisce 502.
+- [ ] `max_completion_tokens: 50`: la risposta è breve (`CLAUDE_CODE_MAX_OUTPUT_TOKENS` rispettato).
+- [ ] `n: 2` con e senza `stream`: due scelte indipendenti.
+
 ## Immagini
 
 - [ ] `examples/python/images.py` con un PNG e un JPEG: la risposta descrive l'immagine (ingresso stream-json con blocchi immagine accettato dalla CLI).

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/r3n3r0/agent-bridge/internal/config"
@@ -19,7 +21,9 @@ import (
 
 // chatCall is a parsed chat completion request.
 type chatCall struct {
-	turn         *turn.Request
+	turn         *turn.Request   // first (or only) choice
+	turns        []*turn.Request // one per choice (n), turn included
+	gen          generation
 	model        string
 	stream       bool
 	includeUsage bool
@@ -32,16 +36,25 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, apiErr)
 		return
 	}
-	if err := s.turns.Admit(call.turn); err != nil {
-		writeError(w, toAPIError(err))
-		return
+	for i, t := range call.turns {
+		if err := s.turns.Admit(t); err != nil {
+			for _, prev := range call.turns[:i] {
+				s.turns.Release(prev)
+			}
+			writeError(w, toAPIError(err))
+			return
+		}
 	}
 	w.Header().Set(headerSessionID, call.turn.SessionKey)
 	if call.stream {
-		s.streamTurn(r.Context(), w, call)
+		if len(call.turns) == 1 {
+			s.streamTurn(r.Context(), w, call)
+		} else {
+			s.streamChoices(r.Context(), w, call)
+		}
 		return
 	}
-	res, err := s.turns.Execute(r.Context(), call.turn, nil)
+	results, err := s.executeAll(r.Context(), call)
 	if err != nil {
 		if r.Context().Err() != nil {
 			return // client gone, nobody to answer
@@ -49,16 +62,88 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, toAPIError(err))
 		return
 	}
-	setTurnHeaders(w.Header(), res)
-	msg, finish := responseMessage(res, call.legacy)
+	total := sumResults(results)
+	setTurnHeaders(w.Header(), total)
+	choices := make([]choice, len(results))
+	for i, res := range results {
+		msg, finish := responseMessage(call.finalize(res), call.legacy)
+		choices[i] = choice{Index: i, Message: msg, FinishReason: finish}
+	}
 	writeJSON(w, http.StatusOK, chatCompletion{
 		ID:      completionID(),
 		Object:  "chat.completion",
 		Created: time.Now().Unix(),
 		Model:   call.model,
-		Choices: []choice{{Index: 0, Message: msg, FinishReason: finish}},
-		Usage:   usageOf(res),
+		Choices: choices,
+		Usage:   usageOf(total),
 	})
+}
+
+// executeAll runs every choice concurrently; the first error cancels the
+// others and is returned.
+func (s *Server) executeAll(ctx context.Context, call *chatCall) ([]*turn.Result, error) {
+	if len(call.turns) == 1 {
+		res, err := s.turns.Execute(ctx, call.turn, nil)
+		if err != nil {
+			return nil, err
+		}
+		return []*turn.Result{res}, nil
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	results := make([]*turn.Result, len(call.turns))
+	errs := make([]error, len(call.turns))
+	var wg sync.WaitGroup
+	for i, t := range call.turns {
+		wg.Add(1)
+		go func(i int, t *turn.Request) {
+			defer wg.Done()
+			results[i], errs[i] = s.turns.Execute(ctx, t, nil)
+			if errs[i] != nil {
+				cancel()
+			}
+		}(i, t)
+	}
+	wg.Wait()
+	// Prefer the error that caused the cancellation over the cancellations.
+	var first error
+	for _, err := range errs {
+		var te *turn.Error
+		if err != nil && (first == nil || (errors.As(first, &te) && te.Kind == turn.KindCanceled)) {
+			first = err
+		}
+	}
+	if first != nil {
+		return nil, first
+	}
+	return results, nil
+}
+
+// finalize applies the stop sequences to a result's text. Structured
+// (JSON schema) output is never cut.
+func (c *chatCall) finalize(res *turn.Result) *turn.Result {
+	if len(c.gen.stop) == 0 || c.gen.jsonSchema != "" {
+		return res
+	}
+	out := *res
+	out.Content = applyStop(res.Content, c.gen.stop)
+	return &out
+}
+
+// sumResults adds up usage, turns and cost of several choices; the
+// duration is the longest one.
+func sumResults(results []*turn.Result) *turn.Result {
+	total := &turn.Result{}
+	for _, r := range results {
+		total.PromptTokens += r.PromptTokens
+		total.CompletionTokens += r.CompletionTokens
+		total.Turns += r.Turns
+		total.CostUSD += r.CostUSD
+		if r.DurationMs > total.DurationMs {
+			total.DurationMs = r.DurationMs
+		}
+	}
+	return total
 }
 
 func usageOf(res *turn.Result) usage {
@@ -141,6 +226,12 @@ func (s *Server) parseChat(w http.ResponseWriter, r *http.Request) (*chatCall, *
 	if apiErr != nil {
 		return nil, apiErr
 	}
+	gen, apiErr := parseGeneration(&req)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	spec.Effort = gen.effort
+	spec.JSONSchema = gen.jsonSchema
 	key, apiErr := sessionKey(r.Header.Get(headerSessionID), req.User)
 	if apiErr != nil {
 		return nil, apiErr
@@ -167,6 +258,7 @@ func (s *Server) parseChat(w http.ResponseWriter, r *http.Request) (*chatCall, *
 		model:  req.Model,
 		stream: req.Stream,
 		legacy: fns.legacy,
+		gen:    gen,
 		turn: &turn.Request{
 			RequestID:         requestIDFrom(r.Context()),
 			Agent:             agent,
@@ -181,7 +273,22 @@ func (s *Server) parseChat(w http.ResponseWriter, r *http.Request) (*chatCall, *
 			LegacyFunctions:   fns.legacy,
 			StatelessTools:    toolMode == config.ToolModeStateless,
 			SystemMode:        systemMode,
+			MaxOutputTokens:   gen.maxTokens,
 		},
+	}
+	call.turns = []*turn.Request{call.turn}
+	if gen.n > 1 {
+		// Choices are independent conversations: each gets a fresh session
+		// with the full history, and client functions never keep a process
+		// waiting (the client continues with only one of the choices).
+		call.turn.SessionKey = session.NewKey()
+		call.turn.Reset = false
+		call.turn.StatelessTools = true
+		for i := 1; i < gen.n; i++ {
+			c := *call.turn
+			c.SessionKey = session.NewKey()
+			call.turns = append(call.turns, &c)
+		}
 	}
 	if req.StreamOptions != nil {
 		call.includeUsage = req.StreamOptions.IncludeUsage

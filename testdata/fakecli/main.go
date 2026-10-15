@@ -15,6 +15,9 @@
 //	                 (default: the first listed function with {"city":"Rome"})
 //	FAKE_TOOL_PARALLEL=1  send the calls concurrently instead of one by one
 //	FAKE_QUIET=1     no assistant text before the calls
+//	FAKE_STRUCTURED  with --json-schema: the structured_output JSON (default
+//	                 {"answer": <result>}), "none" to omit it, "fail" for
+//	                 error_max_structured_output_retries
 //
 // With --input-format stream-json the result also describes the received
 // user message: "[text=... images=image/png,...]".
@@ -62,6 +65,7 @@ func main() {
 	writeRecord("start", args, string(stdin))
 	defer writeRecord("end", args, string(stdin))
 
+	jsonSchema = flagValue(args, "--json-schema")
 	resume := flagValue(args, "--resume")
 	model := flagValue(args, "--model")
 	if model == "" {
@@ -181,7 +185,27 @@ func emitAssistant(sessionID, text string, withTool bool) {
 	emit(map[string]any{"type": "assistant", "session_id": sessionID, "message": map[string]any{"role": "assistant", "content": content}})
 }
 
+// jsonSchema is the --json-schema argument, if any.
+var jsonSchema string
+
 func resultEvent(sessionID, subtype string, isError bool, result string) map[string]any {
+	ev := resultFields(sessionID, subtype, isError, result)
+	if jsonSchema == "" || subtype != "success" || isError {
+		return ev
+	}
+	switch v := os.Getenv("FAKE_STRUCTURED"); v {
+	case "none":
+	case "fail":
+		ev["subtype"], ev["is_error"] = "error_max_structured_output_retries", true
+	case "":
+		ev["structured_output"] = map[string]any{"answer": result}
+	default:
+		ev["structured_output"] = json.RawMessage(v)
+	}
+	return ev
+}
+
+func resultFields(sessionID, subtype string, isError bool, result string) map[string]any {
 	return map[string]any{
 		"type":           "result",
 		"subtype":        subtype,

@@ -17,8 +17,9 @@ const (
 
 // Result subtypes with a specific meaning.
 const (
-	SubtypeSuccess  = "success"
-	SubtypeMaxTurns = "error_max_turns"
+	SubtypeSuccess              = "success"
+	SubtypeMaxTurns             = "error_max_turns"
+	SubtypeStructuredOutputFail = "error_max_structured_output_retries"
 )
 
 // Usage holds token counters reported by the CLI.
@@ -39,6 +40,8 @@ type ResultEvent struct {
 	Usage      Usage   `json:"usage"`
 	NumTurns   int     `json:"num_turns"`
 	DurationMs int64   `json:"duration_ms"`
+	// StructuredOutput is the validated JSON produced with --json-schema.
+	StructuredOutput json.RawMessage `json:"structured_output,omitempty"`
 }
 
 // Event is one parsed stream-json line. Only the fields relevant to Kind are

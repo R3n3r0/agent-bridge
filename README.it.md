@@ -180,6 +180,23 @@ r = client.chat.completions.create(model="bridge/sonnet", messages=[{"role": "us
   nuovi; le precedenti sono già nella sessione. Con `images.enabled: false`
   le immagini sono rifiutate con 400 `unsupported_content`.
 
+## Parametri di generazione
+
+Il bridge pilota la CLI, non l'API del modello direttamente, quindi supporta
+i parametri OpenAI che la CLI può esprimere, e ne emula altri due:
+
+| Parametro OpenAI | Come | Fedeltà |
+| --- | --- | --- |
+| `reasoning_effort` | `--effort` della CLI; `none`/`minimal` diventano `low`, `xhigh` e `max` sono accettati come estensione | Diretta |
+| `response_format` (`json_object`, `json_schema`) | `--json-schema` della CLI: la risposta è validata contro lo schema e restituita come JSON compatto in `content` | Diretta, validata |
+| `max_tokens`, `max_completion_tokens` | `CLAUDE_CODE_MAX_OUTPUT_TOKENS` per il processo | Parziale: limita ogni risposta del modello nel turno, non il totale; `finish_reason` non diventa `length` |
+| `stop` (stringa o fino a 4) | Il testo finale viene tagliato alla prima occorrenza | Emulata: il modello genera comunque tutta la risposta; mai applicato al JSON di `response_format` né ai testi di avanzamento |
+| `n` (1-8) | `n` processi indipendenti in parallelo, una scelta ciascuno, anche in streaming | Emulata: costa `n` volte; nessuna ripresa di sessione, e le funzioni del client sono senza stato |
+| `temperature`, `top_p`, `seed`, `logprobs`, `presence_penalty`, `frequency_penalty`, `logit_bias` | — | Accettati e ignorati: la CLI non ha equivalenti |
+
+Se `response_format` non può essere rispettato (la CLI rinuncia dopo i suoi
+tentativi, o termina senza output strutturato), la richiesta fallisce con 502.
+
 ## Agenti sul server
 
 Un file JSON associa un nome di modello a un agente: modello, system prompt,
@@ -367,8 +384,10 @@ prova su Haiku.
 
 ## Limiti noti
 
-- I parametri OpenAI `response_format`, `temperature`, `top_p`, `n`, `stop`,
-  `logprobs`, `max_tokens` sono accettati e ignorati.
+- `temperature`, `top_p`, `seed`, `logprobs`, `presence_penalty`,
+  `frequency_penalty` e `logit_bias` sono accettati e ignorati; `stop`, `n` e
+  `max_tokens` sono emulati o parziali (vedi
+  [Parametri di generazione](#parametri-di-generazione)).
 - Function calling: `tool_choice` vincolante, `parallel_tool_calls: false` e gli
   schemi delle funzioni sono istruzioni al modello, non vincoli imposti.
 - Parti di contenuto diverse da testo e `image_url` (audio, file) producono
@@ -394,6 +413,12 @@ prova su Haiku.
 **Supporta i tool?** Sì, di due tipi: le funzioni del client con il function
 calling OpenAI, e i tool dell'agente sul server (file, comandi, ricerca, server
 MCP) per gli agenti configurati. Vedi [Due modi di usarlo](#due-modi-di-usarlo).
+
+**Perché `temperature` e `top_p` non funzionano?** Il bridge pilota la CLI di
+Claude Code, che non ha opzioni per questi parametri, e chiamare direttamente
+l'API del modello significherebbe aggirare la CLI (e, con l'abbonamento, i
+suoi termini). Quello che la CLI offre è mappato: vedi
+[Parametri di generazione](#parametri-di-generazione).
 
 **Accetta immagini?** Sì, parti `image_url` con URL `data:` o `http(s)`, come
 nell'API OpenAI. Vedi [Immagini](#immagini).
@@ -425,7 +450,7 @@ o la seconda riceve 409 (`on_busy: reject`).
 
 Struttura a livelli con interfacce e implementazioni sostituibili:
 [docs/architecture.it.md](docs/architecture.it.md). Specifica tecnica completa,
-aggiornata alla rev. 1.3: [docs/specification.it.md](docs/specification.it.md).
+aggiornata alla rev. 1.4: [docs/specification.it.md](docs/specification.it.md).
 
 ```sh
 go test -race ./...          # usa un finto binario della CLI, nessuna credenziale
