@@ -6,64 +6,56 @@ const (
 	BackendDefault = "claude"
 	// BackendCodex is the codex CLI.
 	BackendCodex = "codex"
+	// BackendKimi is the Kimi Code CLI, driven over ACP.
+	BackendKimi = "kimi"
 )
 
-// Backend settings.
-const (
-	EnvBackend         = "AGENT_BRIDGE_BACKEND"
-	DefaultCodexBinary = "codex"
-	// CodexDefaultAlias is the codex built-in model that runs the model
-	// configured in the CLI itself.
-	CodexDefaultAlias = "default"
-)
+// EnvBackend selects the backend from the environment.
+const EnvBackend = "AGENT_BRIDGE_BACKEND"
 
-// Upstream credential variables of the codex CLI.
-const (
-	EnvCodexKey    = "CODEX_API_KEY"
-	EnvCodexToken  = "CODEX_ACCESS_TOKEN"
-	EnvOpenAIKey   = "OPENAI_API_KEY"
-	CodexSandboxRO = "read-only"
-	CodexSandboxWW = "workspace-write"
-	// CodexSandboxFull runs commands without a sandbox; it requires
-	// allow_bypass_permissions.
-	CodexSandboxFull = "danger-full-access"
-)
-
-// CodexSandboxes lists the accepted values of the agent "sandbox" field.
-var CodexSandboxes = []string{CodexSandboxRO, CodexSandboxWW, CodexSandboxFull}
-
-// CodexBuiltinAliases are the zero-config models of the codex backend.
-var CodexBuiltinAliases = []string{CodexDefaultAlias}
+// DefaultAlias is the built-in model of the codex and kimi backends that
+// runs the model configured in the CLI itself.
+const DefaultAlias = "default"
 
 // CredentialEnv returns the upstream credential variables of a backend,
 // removed from the child environment in subscription mode.
 func CredentialEnv(backend string) []string {
-	if backend == BackendCodex {
+	switch backend {
+	case BackendCodex:
 		return []string{EnvCodexKey, EnvCodexToken, EnvOpenAIKey}
+	case BackendKimi:
+		return []string{EnvKimiModelKey, EnvKimiModelName, EnvKimiKey}
 	}
 	return []string{EnvUpstreamKey, EnvUpstreamTok}
 }
 
-// requiredCredential is the variable api mode requires; refusedCredentials
-// are the variables subscription mode refuses to start with.
-func requiredCredential(backend string) string {
-	if backend == BackendCodex {
-		return EnvCodexKey
+// requiredCredentials are the variables api mode requires.
+func requiredCredentials(backend string) []string {
+	switch backend {
+	case BackendCodex:
+		return []string{EnvCodexKey}
+	case BackendKimi:
+		return []string{EnvKimiModelName, EnvKimiModelKey}
 	}
-	return EnvUpstreamKey
+	return []string{EnvUpstreamKey}
 }
 
+// refusedCredentials are the variables subscription mode refuses to start
+// with.
 func refusedCredentials(backend string) []string {
-	if backend == BackendCodex {
+	switch backend {
+	case BackendCodex:
 		return []string{EnvCodexKey, EnvCodexToken}
+	case BackendKimi:
+		return []string{EnvKimiModelKey, EnvKimiKey}
 	}
 	return []string{EnvUpstreamKey, EnvUpstreamTok}
 }
 
 // BuiltinNames returns the zero-config model aliases of the backend.
 func (c *Config) BuiltinNames() []string {
-	if c.Backend == BackendCodex {
-		return CodexBuiltinAliases
+	if c.Backend == BackendCodex || c.Backend == BackendKimi {
+		return []string{DefaultAlias}
 	}
 	return BuiltinAliases
 }
@@ -71,37 +63,28 @@ func (c *Config) BuiltinNames() []string {
 // defaultAgentModel is the model of agents that do not set one; empty
 // means the model configured in the CLI.
 func (c *Config) defaultAgentModel() string {
-	if c.Backend == BackendCodex {
+	if c.Backend == BackendCodex || c.Backend == BackendKimi {
 		return ""
 	}
 	return DefaultModel
 }
 
-// validateCodexAgent checks the agent fields the codex CLI cannot honor.
-func (c *Config) validateCodexAgent(a *Agent, f AgentFile, add func(field, format string, args ...any)) {
-	if c.Backend != BackendCodex {
-		if f.Sandbox != "" {
-			add("sandbox", "is only supported by the codex backend")
+// validateBackendAgent checks the agent fields the backend cannot honor.
+func (c *Config) validateBackendAgent(a *Agent, f AgentFile, add func(field, format string, args ...any)) {
+	if c.Backend != BackendCodex && f.Sandbox != "" {
+		add("sandbox", "is only supported by the codex backend")
+	}
+	switch c.Backend {
+	case BackendCodex:
+		c.validateCodexAgent(a, f, add)
+	case BackendKimi:
+		c.validateKimiAgent(a, f, add)
+	default:
+		if !oneOf(a.PermissionMode, PermissionModes...) {
+			add("permission_mode", "must be one of %s, got %q", joinQuoted(PermissionModes), a.PermissionMode)
 		}
-		return
-	}
-	if f.PermissionMode != "" && f.PermissionMode != defaultPermissionMode {
-		add("permission_mode", "is not supported by the codex backend: use sandbox")
-	}
-	if len(f.AllowedTools) > 0 || len(f.DisallowedTools) > 0 {
-		add("allowed_tools", "allowed_tools and disallowed_tools are not supported by the codex backend")
-	}
-	if f.MaxTurns != nil && *f.MaxTurns > 0 {
-		add("max_turns", "is not supported by the codex backend")
-	}
-	a.MaxTurns = 0
-	if a.Sandbox == "" {
-		a.Sandbox = CodexSandboxWW
-	}
-	if !oneOf(a.Sandbox, CodexSandboxes...) {
-		add("sandbox", "must be one of read-only, workspace-write, danger-full-access, got %q", a.Sandbox)
-	}
-	if a.Sandbox == CodexSandboxFull && !c.AllowBypassPermissions {
-		add("sandbox", "danger-full-access requires allow_bypass_permissions: true")
+		if a.PermissionMode == PermissionBypass && !c.AllowBypassPermissions {
+			add("permission_mode", "bypassPermissions requires allow_bypass_permissions: true")
+		}
 	}
 }

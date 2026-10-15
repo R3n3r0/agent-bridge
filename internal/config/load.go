@@ -14,6 +14,7 @@ func defaults() *Config {
 		Backend:              BackendDefault,
 		Binary:               DefaultBinary,
 		CodexBinary:          DefaultCodexBinary,
+		KimiBinary:           DefaultKimiBinary,
 		MaxConcurrent:        DefaultMaxConcurrent,
 		MaxQueue:             DefaultMaxQueue,
 		QueueTimeoutSeconds:  DefaultQueueTimeout,
@@ -110,6 +111,9 @@ func Load(f *Flags, getenv func(string) string) (*Config, error) {
 	}
 	if f.isSet("codex-bin") {
 		cfg.CodexBinary = f.CodexBinary
+	}
+	if f.isSet("kimi-bin") {
+		cfg.KimiBinary = f.KimiBinary
 	}
 	if f.isSet("log-format") {
 		cfg.LogFormat = f.LogFormat

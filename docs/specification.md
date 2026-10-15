@@ -2,7 +2,7 @@
 
 **English** · [Italiano](specification.it.md)
 
-Oct 15, 2026 · @Someone — **rev. 1.5**: CLI backends and the Codex CLI (section 17); rev. 1.4: OpenAI function calling (section 13), use from external orchestrators (section 13.8), images (section 15), generation parameters (section 16), configurable model prefix and GPL license (section 14)
+Oct 15, 2026 · @Someone — **rev. 1.6**: Kimi Code CLI over ACP (section 18); rev. 1.5: CLI backends and the Codex CLI (section 17); rev. 1.4: OpenAI function calling (section 13), use from external orchestrators (section 13.8), images (section 15), generation parameters (section 16), configurable model prefix and GPL license (section 14)
 
 ## 1. Overview and goals
 
@@ -74,7 +74,7 @@ The code is organized in layers that communicate through interfaces (details in 
 | --- | --- | --- | --- |
 | HTTP | `server` | `turn.Service`, `stats.Reporter` | — |
 | Domain | `turn` | `session.Store`, `session.Locker`, `runner.Backend`, `runner.Executor`, `runner.Limiter`, `stats.Recorder`, `tools.Broker` | default service |
-| Infrastructure | `session`, `runner`, `stats`, `tools` | — | `MemoryStore`, `FileStore`, `KeyLocker`, `StreamJSONBackend`, `CodexBackend`, `CLIExecutor`, `FIFOLimiter`, `Collector`, `JSONLUsageLog`, `HTTPBroker` |
+| Infrastructure | `session`, `runner`, `stats`, `tools` | — | `MemoryStore`, `FileStore`, `KeyLocker`, `StreamJSONBackend`, `CodexBackend`, `KimiBackend`, `CLIExecutor`, `FIFOLimiter`, `Collector`, `JSONLUsageLog`, `HTTPBroker` |
 
 The implementations are wired together in a single place (`cmd/agent-bridge/serve.go`).
 
@@ -383,7 +383,7 @@ Go 1.22 or later, standard library only at runtime; external tools allowed only 
 cmd/agent-bridge/        main, subcommands serve | check-config | doctor | version | mcp-tools
 internal/config/         loading of file/env/flags, defaults, validation
 internal/turn/           domain service: session, prompt, queue, execution, turns waiting for functions
-internal/runner/         Backend (default CLI, Codex CLI): arguments, environment, event parsing; Executor, Limiter
+internal/runner/         Backend (default CLI, Codex CLI, Kimi Code over ACP): arguments, environment, event parsing; Executor, Limiter
   proc_unix.go           process group and termination on Unix
   proc_windows.go        process tree termination on Windows
 internal/prompt/         prompt construction (section 6.4)
@@ -610,7 +610,7 @@ Recommended configuration for this scenario: `{"client_tools": {"mode": "statele
 | Images | Rejected (400) | Accepted as `image_url` parts (15) | Parity with OpenAI clients |
 | License | To be decided | GNU GPL v3 or later (10.4) | Owner's decision |
 | Generation parameters | All accepted and ignored | `reasoning_effort`, `response_format`, `max_tokens` mapped; `stop`, `n` emulated (16) | Use every option the CLI offers |
-| CLI | Only the default CLI | `runner.Backend` interface, default CLI and Codex CLI (17) | Same API on top of either agent |
+| CLI | Only the default CLI | `runner.Backend` interface, default CLI, Codex CLI (17) and Kimi Code CLI over ACP (18) | Same API on top of any of these agents |
 | Upstream error code | `claude_code_error` | `cli_error` | Neutral with every backend |
 | Session id field in logs, usage file and registry | `claude_session_id` | `cli_session_id` | Neutral with every backend |
 
@@ -674,3 +674,23 @@ The `runner.Backend` interface isolates everything that depends on the CLI: buil
 | Minimum version | `2.1.128` | `0.162.0` |
 
 The Codex mapping was verified against the real CLI (0.162.1) driven by a local fake of the Responses API: chat, resume, function calling through MCP, images, `--output-schema`, effort, replaced instructions, resume fallback and cumulative usage. User guide: `docs/codex.md`.
+
+## 18. Kimi Code CLI over ACP
+
+With `backend: "kimi"` the bridge runs `kimi acp` and is the client of an Agent Client Protocol session (JSON-RPC 2.0, one message per line on stdin and stdout). The CLI's print mode (`kimi -p`) is not used: it takes the prompt only as a command-line argument, approves every tool on its own and has no per-invocation MCP servers.
+
+To hold a dialogue on stdin, a backend's `Parser` can also implement `runner.Responder`: the executor then gives it the process stdin instead of writing a fixed prompt. `KimiBackend.Prepare` returns such a parser (`acpDialogue`) built for the turn.
+
+| Step | Message |
+| --- | --- |
+| Start | `initialize` (protocol version 1, no file system or terminal capabilities) |
+| Session | `session/new` {`cwd`, `mcpServers`, `additionalDirectories`} or `session/resume` {`sessionId`, `cwd`, `mcpServers`} |
+| Settings | `session/set_config_option` for `model` (error if unknown), `thinking` (optional: an error is only logged) and `mode` (when different from the current one) |
+| Prompt | `session/prompt` with a text block (agent system prompt in `<system_instructions>` on new sessions; JSON instruction for `response_format`; a leading `/` is escaped) and the image blocks |
+| Updates | `agent_message_chunk` collected; `tool_call` flushes the text as an intermediate text and logs the tool |
+| Agent requests | `session/request_permission` answered by policy (section in `docs/kimi.md`); any other request gets error -32601 |
+| End | The `session/prompt` response: `end_turn` with text → success, without text → error; `max_tokens`/`max_turn_requests` → `finish_reason: "length"`; `refusal`, `cancelled` → error; a JSON-RPC error → error. Then stdin is closed and the CLI exits |
+
+Other choices: `max_turns` → `KIMI_LOOP_MAX_STEPS_PER_TURN`; client function timeout → `KIMI_MCP_TOOL_TIMEOUT_MS`; `KIMI_DISABLE_TELEMETRY=1` and `KIMI_CODE_NO_AUTO_UPDATE=1` unless set; credentials removed in `subscription`: `KIMI_MODEL_API_KEY`, `KIMI_MODEL_NAME`, `KIMI_API_KEY`; `api` mode requires `KIMI_MODEL_NAME` and `KIMI_MODEL_API_KEY`; minimum version `2.2.0`. ACP reports no token usage or cost (0).
+
+Verified with the real Kimi Code CLI 2.2.0 against a local fake chat completions API: chat, resume and fallback, model and thinking selection, permission policy (refused and approved `Bash`), stateful and stateless function calling through MCP, images, structured output and `doctor -live`. User guide: `docs/kimi.md`.

@@ -27,8 +27,13 @@ func (c *Config) resolve() error {
 			add("defaults.max_turns: is not supported by the codex backend")
 		}
 		c.Binary = c.CodexBinary
+	case BackendKimi:
+		if c.KimiBinary == "" {
+			add("kimi_binary: must not be empty")
+		}
+		c.Binary = c.KimiBinary
 	default:
-		add("backend: must be claude or codex, got %q", c.Backend)
+		add("backend: must be claude, codex or kimi, got %q", c.Backend)
 	}
 	if c.MaxConcurrent < 1 {
 		add("max_concurrent: must be at least 1, got %d", c.MaxConcurrent)

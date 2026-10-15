@@ -80,6 +80,7 @@ func (lt *liveTurn) exec(in input, resumeID string) (*runner.Outcome, error) {
 	spec.ResumeID = resumeID
 	inv, err := s.Backend.Prepare(runner.Turn{
 		Spec:            spec,
+		Dir:             lt.req.Cwd,
 		Prompt:          in.text,
 		Images:          in.images,
 		BaseEnv:         s.BaseEnv,
@@ -91,6 +92,9 @@ func (lt *liveTurn) exec(in input, resumeID string) (*runner.Outcome, error) {
 		return &runner.Outcome{}, &prepareError{err}
 	}
 	defer inv.Cleanup()
+	if inv.Parser == nil {
+		inv.Parser = s.Backend.NewParser()
+	}
 	req := runner.Request{
 		Binary:  s.Binary,
 		Args:    inv.Args,
@@ -98,7 +102,7 @@ func (lt *liveTurn) exec(in input, resumeID string) (*runner.Outcome, error) {
 		Dir:     lt.req.Cwd,
 		Stdin:   inv.Stdin,
 		Timeout: lt.req.Agent.Timeout,
-		Parser:  s.Backend.NewParser(),
+		Parser:  inv.Parser,
 		OnEvent: lt.onEvent,
 	}
 	lt.log.Debug("starting CLI", "backend", s.Backend.Name(), "resume", resumeID != "", "images", len(in.images),

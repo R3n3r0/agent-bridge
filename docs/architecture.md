@@ -16,7 +16,7 @@ Domain (internal/turn)            session, prompt, queue, execution, resume, sta
    ▼
 Infrastructure                    replaceable implementations
    internal/session   MemoryStore, FileStore, KeyLocker
-   internal/runner    StreamJSONBackend, CodexBackend, CLIExecutor (real process), FIFOLimiter, per-OS process control
+   internal/runner    StreamJSONBackend, CodexBackend, KimiBackend, CLIExecutor (real process), FIFOLimiter, per-OS process control
    internal/stats     Collector, JSONLUsageLog, DiscardUsage
    internal/tools     HTTPBroker, client functions MCP server (ServeMCP)
    internal/media     HTTPResolver: data: URLs and image downloads with address checks
@@ -29,8 +29,9 @@ Infrastructure                    replaceable implementations
 | `Service` | `turn` | default service (`NewService`) | Runs a turn: `Admit` (checks before the response) and `Execute` |
 | `Store` | `session` | `MemoryStore`, `FileStore` | Session persistence with TTL and LRU |
 | `Locker` | `session` | `KeyLocker` | Per-session mutual exclusion |
-| `Backend` | `runner` | `StreamJSONBackend`, `CodexBackend` | CLI dialect: builds the invocation of a turn, parses its output, detects a missing resumed session |
+| `Backend` | `runner` | `StreamJSONBackend`, `CodexBackend`, `KimiBackend` | CLI dialect: builds the invocation of a turn, parses its output, detects a missing resumed session |
 | `Parser` | `runner` | one per backend | Turns stdout lines into the bridge's events |
+| `Responder` | `runner` | `acpDialogue` (Kimi) | Optional on a `Parser`: receives the process stdin to hold a dialogue (ACP JSON-RPC) instead of a single prompt |
 | `Executor` | `runner` | `CLIExecutor` | Runs a CLI process and collects its events |
 | `Limiter` | `runner` | `FIFOLimiter` | Maximum concurrency and FIFO queue |
 | `Recorder`, `Reporter` | `stats` | `Collector` | Recording of turns; exposure of `/stats` and `/metrics` |
@@ -111,7 +112,9 @@ the HTTP layer knows the status codes: the mapping is in
 - **Remote or container execution**: implement `runner.Executor`.
 - **Another CLI**: implement `runner.Backend` (and its `Parser`) in its own
   files, as `runner/codex.go`, `codex_config.go` and `codex_events.go` do for
-  the Codex CLI, and add it to `runner.NewBackend`.
+  the Codex CLI, and add it to `runner.NewBackend`. A CLI that needs a
+  dialogue on stdin implements `runner.Responder` in its parser, as
+  `runner/kimi_acp*.go` do for the Kimi Code CLI over ACP.
 - **Tests**: the service is tested with fakes of the interfaces, without processes or
   files (`internal/turn/service_test.go`); the server is tested end-to-end with a
   fake binary of the CLI (`testdata/fakecli`).

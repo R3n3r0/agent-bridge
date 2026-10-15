@@ -83,6 +83,7 @@ type Config struct {
 	Backend                string               `json:"backend"`
 	Binary                 string               `json:"claude_binary"`
 	CodexBinary            string               `json:"codex_binary"`
+	KimiBinary             string               `json:"kimi_binary"`
 	MaxConcurrent          int                  `json:"max_concurrent"`
 	MaxQueue               int                  `json:"max_queue"`
 	QueueTimeoutSeconds    int                  `json:"queue_timeout_seconds"`

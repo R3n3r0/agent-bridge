@@ -41,7 +41,7 @@ func (d *doctorReport) fail(format string, a ...any) {
 func doctor(args []string, stdout, stderr io.Writer) int {
 	var live bool
 	fl, err := parseFlags("doctor", args, stderr, func(fs *flag.FlagSet) {
-		fs.BoolVar(&live, "live", false, "run a one-turn test request (haiku model, or the codex default model)")
+		fs.BoolVar(&live, "live", false, "run a one-turn test request (haiku model, or the model configured in the codex or kimi CLI)")
 	})
 	if err != nil {
 		return 2
@@ -204,11 +204,12 @@ func liveCheck(d *doctorReport, cfg *config.Config, backend runner.Backend) {
 	}
 	defer os.RemoveAll(dir)
 	spec := runner.Spec{Model: "haiku", ToolsEnabled: false, MaxTurns: 1}
-	if cfg.Backend == config.BackendCodex {
+	if cfg.Backend != config.BackendDefault {
 		spec = runner.Spec{ToolsEnabled: false}
 	}
 	inv, err := backend.Prepare(runner.Turn{
 		Spec:     spec,
+		Dir:      dir,
 		Prompt:   "Reply with the single word OK.",
 		BaseEnv:  os.Environ(),
 		AuthMode: cfg.AuthMode,
@@ -218,6 +219,9 @@ func liveCheck(d *doctorReport, cfg *config.Config, backend runner.Backend) {
 		return
 	}
 	defer inv.Cleanup()
+	if inv.Parser == nil {
+		inv.Parser = backend.NewParser()
+	}
 	out, err := runner.CLIExecutor{}.Run(context.Background(), runner.Request{
 		Binary:  cfg.Binary,
 		Args:    inv.Args,
@@ -225,7 +229,7 @@ func liveCheck(d *doctorReport, cfg *config.Config, backend runner.Backend) {
 		Dir:     dir,
 		Stdin:   inv.Stdin,
 		Timeout: 2 * time.Minute,
-		Parser:  backend.NewParser(),
+		Parser:  inv.Parser,
 	})
 	if err != nil {
 		d.fail("live check: %v: %s", err, redact.Tail(strings.TrimSpace(out.Stderr), 2000))

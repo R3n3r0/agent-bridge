@@ -1,0 +1,29 @@
+{
+  "backend": "kimi",
+  "listen": "127.0.0.1:8787",
+  "max_concurrent": 2,
+  "agents": {
+    "reviewer": {
+      "description": "Reads the repository and answers questions",
+      "cwd": "./repo",
+      "allowed_tools": ["Read", "Glob", "Grep"],
+      "system_prompt": "You review code. Be concise and cite file paths."
+    },
+    "coder": {
+      "description": "Edits the repository; asks nothing, never runs shell commands",
+      "model": "kimi-k2",
+      "cwd": "./repo",
+      "permission_mode": "auto",
+      "disallowed_tools": ["Bash"],
+      "add_dirs": ["./shared"],
+      "mcp_config": "mcp.json",
+      "max_turns": 50,
+      "timeout_seconds": 1200
+    },
+    "writer": {
+      "description": "Chat-only assistant",
+      "tools_enabled": false,
+      "system_prompt": "You write clear technical documentation."
+    }
+  }
+}

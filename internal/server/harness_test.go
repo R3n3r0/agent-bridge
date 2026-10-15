@@ -92,7 +92,7 @@ type harnessOpts struct {
 	sessions   *session.Options        // registry options
 	extra      func(dir string) string // returns extra agents JSON (without braces), given the temp dir
 	toolWait   time.Duration           // client function wait timeout
-	backend    string                  // "codex" for the codex backend
+	backend    string                  // "codex" or "kimi" for those backends
 	agents     string                  // replaces the default agents JSON
 }
 
@@ -123,8 +123,11 @@ func newHarness(t *testing.T, o harnessOpts) *harness {
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)
 	fl := config.RegisterFlags(fs)
 	flags := []string{"-config", cfgPath, "-claude-bin", fakeBin}
-	if o.backend == config.BackendCodex {
+	switch o.backend {
+	case config.BackendCodex:
 		flags = append(flags, "-backend", config.BackendCodex, "-codex-bin", fakeBin)
+	case config.BackendKimi:
+		flags = append(flags, "-backend", config.BackendKimi, "-kimi-bin", fakeBin)
 	}
 	_ = fs.Parse(flags)
 	fl.MarkSet(fs)

@@ -2,7 +2,7 @@
 
 [English](specification.md) · **Italiano**
 
-Oct 15, 2026 · @Someone — **rev. 1.5**: backend CLI e CLI Codex (sezione 17); rev. 1.4: function calling OpenAI (sezione 13), uso da orchestratori esterni (sezione 13.8), immagini (sezione 15), parametri di generazione (sezione 16), prefisso dei modelli configurabile e licenza GPL (sezione 14)
+Oct 15, 2026 · @Someone — **rev. 1.6**: CLI Kimi Code tramite ACP (sezione 18); rev. 1.5: backend CLI e CLI Codex (sezione 17); rev. 1.4: function calling OpenAI (sezione 13), uso da orchestratori esterni (sezione 13.8), immagini (sezione 15), parametri di generazione (sezione 16), prefisso dei modelli configurabile e licenza GPL (sezione 14)
 
 ## 1. Panoramica e obiettivi
 
@@ -74,7 +74,7 @@ Il codice è organizzato a livelli che comunicano tramite interfacce (dettagli i
 | --- | --- | --- | --- |
 | HTTP | `server` | `turn.Service`, `stats.Reporter` | — |
 | Dominio | `turn` | `session.Store`, `session.Locker`, `runner.Backend`, `runner.Executor`, `runner.Limiter`, `stats.Recorder`, `tools.Broker` | servizio di default |
-| Infrastruttura | `session`, `runner`, `stats`, `tools` | — | `MemoryStore`, `FileStore`, `KeyLocker`, `StreamJSONBackend`, `CodexBackend`, `CLIExecutor`, `FIFOLimiter`, `Collector`, `JSONLUsageLog`, `HTTPBroker` |
+| Infrastruttura | `session`, `runner`, `stats`, `tools` | — | `MemoryStore`, `FileStore`, `KeyLocker`, `StreamJSONBackend`, `CodexBackend`, `KimiBackend`, `CLIExecutor`, `FIFOLimiter`, `Collector`, `JSONLUsageLog`, `HTTPBroker` |
 
 Il cablaggio delle implementazioni avviene in un solo punto (`cmd/agent-bridge/serve.go`).
 
@@ -383,7 +383,7 @@ Go 1.22 o successivo, sola libreria standard a runtime; strumenti esterni ammess
 cmd/agent-bridge/        main, sottocomandi serve | check-config | doctor | version | mcp-tools
 internal/config/         caricamento file/env/flag, default, validazione
 internal/turn/           servizio di dominio: sessione, prompt, coda, esecuzione, turni in attesa di funzioni
-internal/runner/         Backend (CLI predefinita, CLI Codex): argomenti, ambiente, parsing eventi; Executor, Limiter
+internal/runner/         Backend (CLI predefinita, CLI Codex, Kimi Code tramite ACP): argomenti, ambiente, parsing eventi; Executor, Limiter
   proc_unix.go           process group e terminazione su Unix
   proc_windows.go        terminazione dell'albero dei processi su Windows
 internal/prompt/         costruzione del prompt (sezione 6.4)
@@ -610,7 +610,7 @@ Configurazione consigliata per questo scenario: `{"client_tools": {"mode": "stat
 | Immagini | Rifiutate (400) | Accettate come parti `image_url` (15) | Parità con i client OpenAI |
 | Licenza | Da decidere | GNU GPL v3 o successiva (10.4) | Decisione del proprietario |
 | Parametri di generazione | Tutti accettati e ignorati | `reasoning_effort`, `response_format`, `max_tokens` mappati; `stop`, `n` emulati (16) | Usare ogni opzione offerta dalla CLI |
-| CLI | Solo la CLI predefinita | Interfaccia `runner.Backend`, CLI predefinita e CLI Codex (17) | Stessa API sopra l'uno o l'altro agente |
+| CLI | Solo la CLI predefinita | Interfaccia `runner.Backend`, CLI predefinita, CLI Codex (17) e CLI Kimi Code tramite ACP (18) | Stessa API sopra uno qualsiasi di questi agenti |
 | Codice di errore a monte | `claude_code_error` | `cli_error` | Neutro con ogni backend |
 | Campo id di sessione in log, file dei consumi e registro | `claude_session_id` | `cli_session_id` | Neutro con ogni backend |
 
@@ -674,3 +674,23 @@ L'interfaccia `runner.Backend` isola tutto ciò che dipende dalla CLI: costruzio
 | Versione minima | `2.1.128` | `0.162.0` |
 
 La mappatura di Codex è stata verificata con la CLI reale (0.162.1) collegata a un finto server locale della Responses API: chat, ripresa, function calling tramite MCP, immagini, `--output-schema`, effort, istruzioni sostituite, ripiego sulla ripresa e consumi cumulativi. Guida utente: `docs/codex.it.md`.
+
+## 18. CLI Kimi Code tramite ACP
+
+Con `backend: "kimi"` il bridge esegue `kimi acp` ed è il client di una sessione Agent Client Protocol (JSON-RPC 2.0, un messaggio per riga su stdin e stdout). La modalità print della CLI (`kimi -p`) non è usata: riceve il prompt solo come argomento della riga di comando, approva ogni strumento da sola e non ha server MCP per invocazione.
+
+Per tenere un dialogo su stdin, il `Parser` di un backend può implementare anche `runner.Responder`: l'executor gli passa allora lo stdin del processo invece di scrivere un prompt fisso. `KimiBackend.Prepare` restituisce un parser di questo tipo (`acpDialogue`) costruito per il turno.
+
+| Passo | Messaggio |
+| --- | --- |
+| Avvio | `initialize` (versione del protocollo 1, nessuna capacità di file system o terminale) |
+| Sessione | `session/new` {`cwd`, `mcpServers`, `additionalDirectories`} oppure `session/resume` {`sessionId`, `cwd`, `mcpServers`} |
+| Impostazioni | `session/set_config_option` per `model` (errore se sconosciuto), `thinking` (facoltativo: un errore è solo registrato) e `mode` (se diversa da quella corrente) |
+| Prompt | `session/prompt` con un blocco di testo (prompt di sistema dell'agente in `<system_instructions>` sulle nuove sessioni; istruzione JSON per `response_format`; una `/` iniziale viene neutralizzata) e i blocchi immagine |
+| Aggiornamenti | `agent_message_chunk` raccolti; `tool_call` emette il testo come testo intermedio e registra lo strumento |
+| Richieste dell'agente | `session/request_permission` risposta secondo la politica (sezione in `docs/kimi.it.md`); ogni altra richiesta riceve l'errore -32601 |
+| Fine | La risposta a `session/prompt`: `end_turn` con testo → successo, senza testo → errore; `max_tokens`/`max_turn_requests` → `finish_reason: "length"`; `refusal`, `cancelled` → errore; un errore JSON-RPC → errore. Poi stdin viene chiuso e la CLI termina |
+
+Altre scelte: `max_turns` → `KIMI_LOOP_MAX_STEPS_PER_TURN`; timeout delle funzioni del client → `KIMI_MCP_TOOL_TIMEOUT_MS`; `KIMI_DISABLE_TELEMETRY=1` e `KIMI_CODE_NO_AUTO_UPDATE=1` se non impostate; credenziali rimosse in `subscription`: `KIMI_MODEL_API_KEY`, `KIMI_MODEL_NAME`, `KIMI_API_KEY`; la modalità `api` richiede `KIMI_MODEL_NAME` e `KIMI_MODEL_API_KEY`; versione minima `2.2.0`. ACP non riporta consumi né costi (0).
+
+Verificato con la CLI Kimi Code reale 2.2.0 collegata a un finto server locale delle chat completions: chat, ripresa e ripiego, scelta di modello e thinking, politica dei permessi (`Bash` rifiutato e approvato), function calling stateful e stateless tramite MCP, immagini, output strutturato e `doctor -live`. Guida utente: `docs/kimi.it.md`.

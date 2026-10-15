@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"io"
 	"time"
 
 	"github.com/r3n3r0/agent-bridge/internal/config"
@@ -33,9 +34,19 @@ type Parser interface {
 	Parse(line []byte) []Event
 }
 
+// Responder is implemented by parsers of CLIs that hold a dialogue on stdin
+// (for example JSON-RPC) instead of reading a single prompt. Start receives
+// the process stdin right after the process starts; the parser writes to it
+// while it reads the output, and closes it when the turn is over.
+type Responder interface {
+	Start(stdin io.WriteCloser) error
+}
+
 // Turn is everything a Backend needs to build an invocation.
 type Turn struct {
-	Spec   Spec
+	Spec Spec
+	// Dir is the working directory of the process.
+	Dir    string
 	Prompt string
 	Images []ImageBlock
 	// BaseEnv is the environment the child environment is derived from.
@@ -54,6 +65,9 @@ type Invocation struct {
 	Args  []string
 	Env   []string
 	Stdin string
+	// Parser, if set, replaces Backend.NewParser for this invocation, for
+	// dialogues that depend on the turn.
+	Parser Parser
 	// Cleanup removes the temporary files of the invocation; never nil.
 	Cleanup func()
 }
@@ -65,6 +79,8 @@ func NewBackend(name string) (Backend, error) {
 		return StreamJSONBackend{}, nil
 	case config.BackendCodex:
 		return CodexBackend{}, nil
+	case config.BackendKimi:
+		return KimiBackend{}, nil
 	}
 	return nil, &UnknownBackendError{Name: name}
 }

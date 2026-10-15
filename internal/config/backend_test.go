@@ -77,7 +77,7 @@ func TestCodexValidation(t *testing.T) {
 	if _, err := Load(flags(t, "-config", p), env(nil)); err == nil || !strings.Contains(err.Error(), "only supported by the codex backend") {
 		t.Fatalf("err %v", err)
 	}
-	if _, err := Load(flags(t, "-backend", "other"), env(nil)); err == nil || !strings.Contains(err.Error(), "backend: must be claude or codex") {
+	if _, err := Load(flags(t, "-backend", "other"), env(nil)); err == nil || !strings.Contains(err.Error(), "backend: must be claude, codex or kimi") {
 		t.Fatalf("err %v", err)
 	}
 }
@@ -99,5 +99,55 @@ func TestCodexValidateAuth(t *testing.T) {
 	}
 	if got := CredentialEnv(BackendCodex); len(got) != 3 {
 		t.Fatalf("credentials %v", got)
+	}
+}
+
+func TestKimiBackend(t *testing.T) {
+	dir := t.TempDir()
+	p := writeConfig(t, dir, `{"backend": "kimi", "kimi_binary": "/opt/kimi", "allow_bypass_permissions": true, "agents": {
+		"ops": {"cwd": ".", "allowed_tools": ["Bash"], "permission_mode": "yolo", "max_turns": 5},
+		"chat": {"tools_enabled": false}}}`)
+	cfg, err := Load(flags(t, "-config", p), env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Binary != "/opt/kimi" || cfg.Agents["ops"].MaxTurns != 5 || cfg.Agents["ops"].Model != "" {
+		t.Fatalf("cfg %+v %+v", cfg, cfg.Agents["ops"])
+	}
+	if a, ok := cfg.Agent("bridge/default"); !ok || a.Model != "" {
+		t.Fatalf("default alias %+v", a)
+	}
+	cfg, err = Load(flags(t, "-backend", "kimi", "-kimi-bin", "/k"), env(nil))
+	if err != nil || cfg.Binary != "/k" {
+		t.Fatalf("flags %v %v", cfg, err)
+	}
+
+	p = writeConfig(t, dir, `{"backend": "kimi", "kimi_binary": "", "agents": {
+		"a": {"cwd": ".", "permission_mode": "acceptEdits"},
+		"b": {"cwd": ".", "permission_mode": "yolo"},
+		"c": {"cwd": ".", "sandbox": "read-only"}}}`)
+	_, err = Load(flags(t, "-config", p), env(nil))
+	for _, want := range []string{"kimi_binary: must not be empty", `agent "a": permission_mode: must be one of default, plan, auto, yolo`,
+		`agent "b": permission_mode: yolo requires allow_bypass_permissions`, `agent "c": sandbox: is only supported by the codex backend`} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("missing %q in %v", want, err)
+		}
+	}
+}
+
+func TestKimiValidateAuth(t *testing.T) {
+	cfg := &Config{Backend: BackendKimi, AuthMode: AuthSubscription}
+	if err := cfg.ValidateAuth(env(map[string]string{EnvKimiModelKey: "x"})); err == nil {
+		t.Fatal("subscription mode must refuse KIMI_MODEL_API_KEY")
+	}
+	if err := cfg.ValidateAuth(env(nil)); err != nil {
+		t.Fatal(err)
+	}
+	cfg.AuthMode = AuthAPI
+	if err := cfg.ValidateAuth(env(map[string]string{EnvKimiModelKey: "x"})); err == nil || !strings.Contains(err.Error(), EnvKimiModelName) {
+		t.Fatalf("api mode needs the model name: %v", err)
+	}
+	if err := cfg.ValidateAuth(env(map[string]string{EnvKimiModelKey: "x", EnvKimiModelName: "kimi-k2"})); err != nil {
+		t.Fatal(err)
 	}
 }

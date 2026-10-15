@@ -16,7 +16,7 @@ Dominio (internal/turn)           sessione, prompt, coda, esecuzione, ripresa, s
    ▼
 Infrastruttura                    implementazioni sostituibili
    internal/session   MemoryStore, FileStore, KeyLocker
-   internal/runner    StreamJSONBackend, CodexBackend, CLIExecutor (processo reale), FIFOLimiter, controllo processi per OS
+   internal/runner    StreamJSONBackend, CodexBackend, KimiBackend, CLIExecutor (processo reale), FIFOLimiter, controllo processi per OS
    internal/stats     Collector, JSONLUsageLog, DiscardUsage
    internal/tools     HTTPBroker, server MCP delle funzioni del client (ServeMCP)
    internal/media     HTTPResolver: URL data: e download di immagini con controllo degli indirizzi
@@ -29,8 +29,9 @@ Infrastruttura                    implementazioni sostituibili
 | `Service` | `turn` | servizio di default (`NewService`) | Esegue un turno: `Admit` (controlli prima della risposta) ed `Execute` |
 | `Store` | `session` | `MemoryStore`, `FileStore` | Persistenza delle sessioni con TTL e LRU |
 | `Locker` | `session` | `KeyLocker` | Esclusione mutua per sessione |
-| `Backend` | `runner` | `StreamJSONBackend`, `CodexBackend` | Dialetto della CLI: costruisce l'invocazione di un turno, ne interpreta l'output, riconosce una sessione ripresa che non esiste più |
+| `Backend` | `runner` | `StreamJSONBackend`, `CodexBackend`, `KimiBackend` | Dialetto della CLI: costruisce l'invocazione di un turno, ne interpreta l'output, riconosce una sessione ripresa che non esiste più |
 | `Parser` | `runner` | uno per backend | Trasforma le righe di stdout negli eventi del bridge |
+| `Responder` | `runner` | `acpDialogue` (Kimi) | Facoltativa su un `Parser`: riceve lo stdin del processo per tenere un dialogo (JSON-RPC ACP) invece di un prompt unico |
 | `Executor` | `runner` | `CLIExecutor` | Esegue un processo della CLI e ne raccoglie gli eventi |
 | `Limiter` | `runner` | `FIFOLimiter` | Concorrenza massima e coda FIFO |
 | `Recorder`, `Reporter` | `stats` | `Collector` | Registrazione dei turni; esposizione di `/stats` e `/metrics` |
@@ -111,7 +112,9 @@ il livello HTTP conosce i codici di stato: la mappatura è in
 - **Esecuzione remota o in container**: implementare `runner.Executor`.
 - **Un'altra CLI**: implementare `runner.Backend` (e il suo `Parser`) in file
   propri, come fanno `runner/codex.go`, `codex_config.go` e `codex_events.go`
-  per la CLI Codex, e aggiungerlo a `runner.NewBackend`.
+  per la CLI Codex, e aggiungerlo a `runner.NewBackend`. Una CLI che
+  richiede un dialogo su stdin implementa `runner.Responder` nel suo parser,
+  come fanno `runner/kimi_acp*.go` per la CLI Kimi Code tramite ACP.
 - **Test**: il servizio si prova con fake delle interfacce, senza processi né
   file (`internal/turn/service_test.go`); il server si prova end-to-end con un
   finto binario della CLI (`testdata/fakecli`).
