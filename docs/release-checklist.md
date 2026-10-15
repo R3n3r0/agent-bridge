@@ -8,7 +8,7 @@ Record the CLI version, operating system and outcome of each item.
 
 ## Preparation
 
-- [ ] CI green on the commit to be released (Linux, macOS, Windows; Go 1.22 and stable).
+- [ ] The `ci` workflow, started by hand (Actions → ci → Run workflow), green on the commit to be released (Linux, macOS, Windows; Go 1.22 and stable).
 - [ ] `CHANGELOG.md` updated.
 - [ ] `grep -rniE '\.credentials|keychain|oauth' --include='*.go' .` finds nothing.
 - [ ] `go list -deps ./cmd/agent-bridge` contains only the standard library and packages from the module.

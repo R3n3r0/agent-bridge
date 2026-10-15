@@ -400,7 +400,7 @@ docs/                    configurazione, architettura, checklist di rilascio, sp
 
 ### 10.2 Qualità e CI
 
-GitHub Actions su ogni PR: `gofmt -l` vuoto, `go vet`, `staticcheck`, `go test -race ./...` su Ubuntu, macOS e Windows con Go 1.22 e l'ultima stabile. Copertura minima dell'80% su `internal/prompt`, `internal/session`, `internal/config`, `internal/runner`, `internal/turn` e `internal/tools`.
+Workflow GitHub Actions `ci`, avviato a mano (`workflow_dispatch`; non parte su push né pull request): `gofmt -l` vuoto, `go vet`, `staticcheck`, `go test -race ./...` su Ubuntu, macOS e Windows con Go 1.22 e l'ultima stabile. Copertura minima dell'80% su `internal/prompt`, `internal/session`, `internal/config`, `internal/runner`, `internal/turn` e `internal/tools`.
 
 ### 10.3 Rilascio
 
