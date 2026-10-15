@@ -283,7 +283,8 @@ o la seconda riceve 409 (`on_busy: reject`).
 ## Sviluppo
 
 Struttura a livelli con interfacce e implementazioni sostituibili:
-[docs/architecture.md](docs/architecture.md).
+[docs/architecture.md](docs/architecture.md). Specifica tecnica completa,
+aggiornata alla rev. 1.1: [docs/specifiche-tecniche.md](docs/specifiche-tecniche.md).
 
 ```sh
 go test -race ./...          # usa un finto binario della CLI, nessuna credenziale
