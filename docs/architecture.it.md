@@ -82,6 +82,22 @@ Il dominio restituisce `*turn.Error` con un `Kind` (`KindInvalid`,
 il livello HTTP conosce i codici di stato: la mappatura è in
 `server.toAPIError`.
 
+## Organizzazione del codice
+
+- Ogni interfaccia è dichiarata in un file proprio, con il nome del concetto
+  (`session/session.go`, `runner/executor.go`, `runner/limiter.go`,
+  `tools/broker.go`, `media/media.go`, `stats/usage.go`, `turn/service.go`).
+- Ogni implementazione sta in un file separato (`session/memory.go`,
+  `session/file.go`, `runner/cli.go`, `runner/fifo.go`,
+  `tools/httpbroker.go`, `media/httpresolver.go`, `stats/collector.go`,
+  `stats/jsonl.go`, `turn/default.go`).
+- Le implementazioni grandi sono divise per responsabilità: il servizio dei
+  turni predefinito è in `default.go` (ammissione, avvio), `liveturn.go`
+  (processo in esecuzione), `calls.go` (funzioni del client), `input.go`
+  (prompt e immagini), `classify.go` (mappatura dell'esito) ed `errors.go`.
+- I file di produzione restano sotto le 300 righe circa; un file che cresce
+  oltre si divide per responsabilità.
+
 ## Estendere
 
 - **Store condiviso** (es. Redis per più istanze in modalità `api`):

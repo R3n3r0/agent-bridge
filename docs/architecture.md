@@ -82,6 +82,22 @@ The domain returns `*turn.Error` with a `Kind` (`KindInvalid`,
 the HTTP layer knows the status codes: the mapping is in
 `server.toAPIError`.
 
+## Code organization
+
+- Every interface is declared in its own file, named after the concept
+  (`session/session.go`, `runner/executor.go`, `runner/limiter.go`,
+  `tools/broker.go`, `media/media.go`, `stats/usage.go`, `turn/service.go`).
+- Every implementation lives in a separate file (`session/memory.go`,
+  `session/file.go`, `runner/cli.go`, `runner/fifo.go`,
+  `tools/httpbroker.go`, `media/httpresolver.go`, `stats/collector.go`,
+  `stats/jsonl.go`, `turn/default.go`).
+- Large implementations are split by responsibility: the default turn service
+  is in `default.go` (admission, start), `liveturn.go` (running process),
+  `calls.go` (client functions), `input.go` (prompt and images),
+  `classify.go` (outcome mapping) and `errors.go`.
+- Production files stay under about 300 lines; a file that grows beyond that
+  is split by responsibility.
+
 ## Extending
 
 - **Shared store** (e.g. Redis for multiple instances in `api` mode):
