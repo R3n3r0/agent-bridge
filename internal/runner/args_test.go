@@ -1,0 +1,113 @@
+package runner
+
+import (
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/r3n3r0/agent-bridge/internal/config"
+)
+
+var base = []string{"-p", "--output-format", "stream-json", "--verbose"}
+
+func TestArgsMinimal(t *testing.T) {
+	got := Args(Spec{ToolsEnabled: true})
+	if !reflect.DeepEqual(got, base) {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestArgsEveryField(t *testing.T) {
+	s := Spec{
+		Model:            "opus",
+		SystemPrompt:     "be careful",
+		SystemPromptMode: config.PromptModeAppend,
+		AllowedTools:     []string{"Read", "Bash(git *)"},
+		DisallowedTools:  []string{"WebFetch", "Write"},
+		ToolsEnabled:     true,
+		PermissionMode:   "acceptEdits",
+		MaxTurns:         4,
+		AddDirs:          []string{"/a", "/b"},
+		MCPConfig:        "/m.json",
+		ResumeID:         "sess-1",
+	}
+	want := append(append([]string{}, base...),
+		"--model", "opus",
+		"--append-system-prompt", "be careful",
+		"--allowedTools", "Read,Bash(git *)",
+		"--disallowedTools", "WebFetch,Write",
+		"--permission-mode", "acceptEdits",
+		"--max-turns", "4",
+		"--add-dir", "/a", "--add-dir", "/b",
+		"--mcp-config", "/m.json",
+		"--resume", "sess-1",
+	)
+	if got := Args(s); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got  %q\nwant %q", got, want)
+	}
+}
+
+func TestArgsReplacePrompt(t *testing.T) {
+	got := strings.Join(Args(Spec{ToolsEnabled: true, SystemPrompt: "x", SystemPromptMode: config.PromptModeReplace}), " ")
+	if !strings.Contains(got, "--system-prompt x") || strings.Contains(got, "--append-system-prompt") {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestArgsChatOnly(t *testing.T) {
+	s := Spec{
+		Model:        "haiku",
+		ToolsEnabled: false,
+		AllowedTools: []string{"Read"},
+		AddDirs:      []string{"/a"},
+		MCPConfig:    "/m.json",
+	}
+	got := Args(s)
+	idx := -1
+	for i, a := range got {
+		if a == "--tools" {
+			idx = i
+		}
+		if a == "--allowedTools" || a == "--add-dir" || a == "--mcp-config" {
+			t.Fatalf("chat-only args contain %s: %q", a, got)
+		}
+	}
+	if idx < 0 || idx+1 >= len(got) || got[idx+1] != "" {
+		t.Fatalf(`--tools "" missing: %q`, got)
+	}
+}
+
+func TestArgsNeverContainPrompt(t *testing.T) {
+	for _, a := range Args(Spec{ToolsEnabled: true, Model: "m"}) {
+		if !strings.HasPrefix(a, "-") && a != "stream-json" && a != "m" {
+			t.Fatalf("unexpected positional argument %q", a)
+		}
+	}
+}
+
+func TestSpecFromAgentCopies(t *testing.T) {
+	a := &config.Agent{Model: "m", AllowedTools: []string{"Read"}, ToolsEnabled: true, MaxTurns: 3}
+	s := SpecFromAgent(a)
+	s.AllowedTools[0] = "Changed"
+	if a.AllowedTools[0] != "Read" || s.Model != "m" || s.MaxTurns != 3 || !s.ToolsEnabled {
+		t.Fatal("SpecFromAgent must copy slices and fields")
+	}
+}
+
+func TestEnv(t *testing.T) {
+	in := []string{
+		"PATH=/bin", "HOME=/h",
+		"AGENT_BRIDGE_API_KEY=secret", "AGENT_BRIDGE_AUTH_MODE=api", "AGENT_BRIDGE_X=1",
+		"ANTHROPIC_API_KEY=k", "ANTHROPIC_AUTH_TOKEN=t", "ANTHROPIC_MODEL=m",
+	}
+	sub := Env(in, config.AuthSubscription)
+	want := []string{"PATH=/bin", "HOME=/h", "ANTHROPIC_MODEL=m"}
+	if !reflect.DeepEqual(sub, want) {
+		t.Fatalf("subscription env %q", sub)
+	}
+	api := Env(in, config.AuthAPI)
+	want = []string{"PATH=/bin", "HOME=/h", "ANTHROPIC_API_KEY=k", "ANTHROPIC_AUTH_TOKEN=t", "ANTHROPIC_MODEL=m"}
+	if !reflect.DeepEqual(api, want) {
+		t.Fatalf("api env %q", api)
+	}
+}
