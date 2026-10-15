@@ -8,7 +8,7 @@ Annotare versione della CLI, sistema operativo ed esito di ogni voce.
 
 ## Preparazione
 
-- [ ] CI verde sul commit da rilasciare (Linux, macOS, Windows; Go 1.22 e stabile).
+- [ ] Workflow `ci`, avviato a mano (Actions → ci → Run workflow), verde sul commit da rilasciare (Linux, macOS, Windows; Go 1.22 e stabile).
 - [ ] `CHANGELOG.md` aggiornato.
 - [ ] `grep -rniE '\.credentials|keychain|oauth' --include='*.go' .` non trova nulla.
 - [ ] `go list -deps ./cmd/agent-bridge` contiene solo libreria standard e pacchetti del modulo.

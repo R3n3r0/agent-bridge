@@ -400,7 +400,7 @@ docs/                    configuration, architecture, release checklist, specifi
 
 ### 10.2 Quality and CI
 
-GitHub Actions on every PR: empty `gofmt -l`, `go vet`, `staticcheck`, `go test -race ./...` on Ubuntu, macOS and Windows with Go 1.22 and the latest stable release. Minimum 80% coverage on `internal/prompt`, `internal/session`, `internal/config`, `internal/runner`, `internal/turn` and `internal/tools`.
+GitHub Actions workflow `ci`, started by hand (`workflow_dispatch`; it does not run on push or pull requests): empty `gofmt -l`, `go vet`, `staticcheck`, `go test -race ./...` on Ubuntu, macOS and Windows with Go 1.22 and the latest stable release. Minimum 80% coverage on `internal/prompt`, `internal/session`, `internal/config`, `internal/runner`, `internal/turn` and `internal/tools`.
 
 ### 10.3 Release
 
