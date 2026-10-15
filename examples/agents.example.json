@@ -1,0 +1,48 @@
+{
+  "listen": "127.0.0.1:8787",
+  "max_concurrent": 2,
+  "stream_progress": "comments",
+  "usage_log": "usage.jsonl",
+  "defaults": {
+    "timeout_seconds": 1800,
+    "max_turns": 0
+  },
+  "sessions": {
+    "store": "file",
+    "path": "sessions.json",
+    "ttl_hours": 168,
+    "on_busy": "wait"
+  },
+  "overrides": {
+    "allowed_roots": ["../"],
+    "allow_tools": true,
+    "allow_system_prompt": false
+  },
+  "agents": {
+    "reviewer": {
+      "model": "opus",
+      "description": "Reviews code, read-only",
+      "system_prompt": "You are a strict code reviewer. Never modify files.",
+      "allowed_tools": ["Read", "Grep", "Glob"],
+      "disallowed_tools": ["Edit", "Write", "Bash"],
+      "permission_mode": "default",
+      "cwd": "../"
+    },
+    "coder": {
+      "model": "sonnet",
+      "description": "Implements changes in the repository",
+      "system_prompt": "Make the smallest change that solves the task and run the tests.",
+      "allowed_tools": ["Read", "Grep", "Glob", "Edit", "Write", "Bash(go test *)", "Bash(git diff *)"],
+      "permission_mode": "acceptEdits",
+      "max_turns": 30,
+      "cwd": "../"
+    },
+    "summarizer": {
+      "model": "haiku",
+      "description": "Chat only, no tools",
+      "system_prompt": "Summarize the input in at most five bullet points.",
+      "tools_enabled": false,
+      "timeout_seconds": 120
+    }
+  }
+}
