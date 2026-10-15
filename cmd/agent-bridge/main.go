@@ -102,6 +102,7 @@ func checkConfig(args []string, stdout, stderr io.Writer) int {
 	} else {
 		fmt.Fprintf(stdout, "no configuration file, defaults are valid\n\n")
 	}
+	fmt.Fprintf(stdout, "backend: %s (binary %s)\n\n", cfg.Backend, cfg.Binary)
 	for _, name := range cfg.AgentNames() {
 		a := cfg.Agents[name]
 		kind := "agent"
@@ -112,8 +113,17 @@ func checkConfig(args []string, stdout, stderr io.Writer) int {
 		if cwd == "" {
 			cwd = "(temporary directory)"
 		}
-		fmt.Fprintf(stdout, "%s (%s)\n  model: %s\n  tools: %s\n  permission_mode: %s\n  cwd: %s\n  max_turns: %d\n  timeout: %s\n",
-			name, kind, a.Model, toolsSummary(a), a.PermissionMode, cwd, a.MaxTurns, a.Timeout)
+		model := a.Model
+		if model == "" {
+			model = "(configured in the CLI)"
+		}
+		fmt.Fprintf(stdout, "%s (%s)\n  model: %s\n  tools: %s\n", name, kind, model, toolsSummary(a))
+		if cfg.Backend == config.BackendCodex {
+			fmt.Fprintf(stdout, "  sandbox: %s\n", sandboxSummary(a))
+		} else {
+			fmt.Fprintf(stdout, "  permission_mode: %s\n  max_turns: %d\n", a.PermissionMode, a.MaxTurns)
+		}
+		fmt.Fprintf(stdout, "  cwd: %s\n  timeout: %s\n", cwd, a.Timeout)
 		if a.SystemPrompt != "" {
 			fmt.Fprintf(stdout, "  system_prompt: %s (%d chars)\n", a.SystemPromptMode, len(a.SystemPrompt))
 		}
@@ -125,6 +135,13 @@ func checkConfig(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	return 0
+}
+
+func sandboxSummary(a *config.Agent) string {
+	if !a.ToolsEnabled {
+		return config.CodexSandboxRO
+	}
+	return a.Sandbox
 }
 
 func toolsSummary(a *config.Agent) string {

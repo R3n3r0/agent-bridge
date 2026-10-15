@@ -1,0 +1,28 @@
+{
+  "backend": "codex",
+  "listen": "127.0.0.1:8787",
+  "max_concurrent": 2,
+  "usage_log": "usage.jsonl",
+  "agents": {
+    "reviewer": {
+      "description": "Reads the repository and answers questions, without writing",
+      "cwd": "./repo",
+      "sandbox": "read-only",
+      "system_prompt": "You review code. Be concise and cite file paths."
+    },
+    "coder": {
+      "description": "Edits the repository inside the workspace sandbox",
+      "model": "gpt-5-codex",
+      "cwd": "./repo",
+      "add_dirs": ["./shared"],
+      "mcp_config": "mcp.json",
+      "timeout_seconds": 1200
+    },
+    "writer": {
+      "description": "Chat-only assistant with its own instructions",
+      "tools_enabled": false,
+      "system_prompt": "You write clear technical documentation.",
+      "system_prompt_mode": "replace"
+    }
+  }
+}

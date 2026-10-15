@@ -32,7 +32,7 @@ type Turn struct {
 	Agent               string  `json:"agent"`
 	Model               string  `json:"model"`
 	SessionKey          string  `json:"session_key"`
-	CLISessionID        string  `json:"claude_session_id"`
+	CLISessionID        string  `json:"cli_session_id"`
 	Resumed             bool    `json:"resumed"`
 	Turns               int     `json:"turns"`
 	DurationMs          int64   `json:"duration_ms"`

@@ -53,6 +53,18 @@ Environment without `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`, logged in wit
 - [ ] Image close to 5 MB: accepted (stdin limit with structured input).
 - [ ] Second turn with the same `X-Session-Id` and a new image: `--resume` with structured input works.
 
+## Codex backend
+
+With `backend: "codex"`, the codex CLI at version `0.162.0` (`runner.CodexMinVersion`) and the latest one, logged in with `codex login`.
+
+- [ ] `agent-bridge doctor -live -backend codex` exits with code 0 (`codex login status` ok).
+- [ ] `bridge/default` and `bridge/<model>`: 200, `usage` populated; second turn with the same `X-Session-Id` remembers the first and reports only that turn's usage.
+- [ ] Chat-only model asked to run a command: no command executed (`debug` log shows no tool use).
+- [ ] Agent with `sandbox: workspace-write` that edits a file in a test repository: change present on disk.
+- [ ] Function calling loop with `examples/python/tools.py`, `stateful` and `stateless`.
+- [ ] Image: the answer describes it; `json_schema` with a strict schema: valid JSON; `reasoning_effort: "high"` accepted.
+- [ ] `api` mode with `CODEX_API_KEY`: same requests work.
+
 ## `api` mode
 
 `AGENT_BRIDGE_AUTH_MODE=api` and `ANTHROPIC_API_KEY` set.

@@ -41,6 +41,8 @@ type Request struct {
 	Dir     string
 	Stdin   string
 	Timeout time.Duration
+	// Parser reads the output; nil means the stream-json format.
+	Parser Parser
 	// OnEvent, if set, receives every parsed event in order.
 	OnEvent func(Event)
 }

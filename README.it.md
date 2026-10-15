@@ -7,6 +7,9 @@
 ufficiale di Claude Code in modalità headless
 (`claude -p --output-format stream-json`).
 
+Può anche eseguire al suo posto la CLI Codex di OpenAI (`codex exec --json`),
+con la stessa API: vedi il [backend Codex](docs/codex.it.md).
+
 Qualsiasi client o framework che parla OpenAI può usarlo cambiando solo
 `base_url`, `api_key` e `model`: chat, streaming, function calling (tool
 calling) e immagini in ingresso funzionano con gli SDK ufficiali senza
@@ -18,7 +21,8 @@ e framework che accettano un `base_url` OpenAI personalizzato (per esempio
 LangChain, LlamaIndex, CrewAI, AutoGen o gli SDK OpenAI per Python, Node e Go)
 di usare Claude Code in modalità headless come modello chat completions o
 come agente di programmazione, con tool calling, server MCP, sessioni,
-streaming (SSE) e un modello per ogni agente.
+streaming (SSE) e un modello per ogni agente. Lo stesso server è un'API
+compatibile OpenAI, proxy e gateway per la CLI Codex di OpenAI.
 
 > **Progetto indipendente.** agent-bridge non è sviluppato, approvato né
 > supportato da Anthropic. Esegue il binario ufficiale `claude` installato
@@ -29,6 +33,8 @@ streaming (SSE) e un modello per ogni agente.
 - Stessa build per sviluppo (login con abbonamento) e produzione (API key).
 - Function calling OpenAI (`tools`, `tool_calls`), anche in streaming.
 - Immagini in ingresso (parti `image_url`: URL `data:` e `http(s)`).
+- Due backend CLI: quello predefinito e la CLI Codex di OpenAI
+  (`backend: "codex"`, vedi [docs/codex.it.md](docs/codex.it.md)).
 - Software libero, con licenza GNU GPL v3 o successiva.
 
 ## Due modi di usarlo
@@ -282,6 +288,26 @@ Ogni turno registra token e costo (log, file `usage_log` opzionale, `/stats`,
 calcolata dalla CLI ai prezzi API, non un addebito**: serve a prevedere quanto
 costerà la produzione con API key.
 
+## Backend Codex
+
+Con `backend: "codex"` (oppure `-backend codex`, `AGENT_BRIDGE_BACKEND=codex`)
+ogni turno esegue `codex exec --json` al posto della CLI predefinita. API,
+sessioni, function calling, immagini, output strutturato e sforzo di
+ragionamento funzionano allo stesso modo; i modelli integrati diventano
+`bridge/default` (il modello configurato in Codex) e `bridge/<modello>`; gli
+agenti con strumenti usano una `sandbox` (`read-only`, `workspace-write`,
+`danger-full-access`) al posto di `permission_mode` e `allowed_tools`.
+Autenticazione: `codex login` in modalità `subscription`, `CODEX_API_KEY` in
+modalità `api`.
+
+```sh
+codex login
+AGENT_BRIDGE_AUTH_MODE=subscription agent-bridge -backend codex
+```
+
+Mappatura completa, campi degli agenti e differenze:
+[docs/codex.it.md](docs/codex.it.md).
+
 ## Uso consentito
 
 agent-bridge è uno strumento: chi lo usa resta responsabile del rispetto dei
@@ -380,7 +406,8 @@ Comandi: `agent-bridge serve` (default), `check-config`, `doctor [-live]`,
 `version`; `mcp-tools` è interno, avviato dalla CLI per le funzioni del client.
 `doctor` controlla la CLI e la sua versione, la coerenza della modalità di
 autenticazione e i permessi delle cartelle; con `-live` esegue un turno di
-prova su Haiku.
+prova su Haiku (con il backend Codex: `codex login status` e il modello
+configurato in Codex).
 
 ## Limiti noti
 

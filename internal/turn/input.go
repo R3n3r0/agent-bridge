@@ -78,34 +78,43 @@ func (lt *liveTurn) exec(in input, resumeID string) (*runner.Outcome, error) {
 	s := lt.svc
 	spec := lt.req.Spec
 	spec.ResumeID = resumeID
-	text := in.text
-	stdin := in.text
-	if len(in.images) > 0 {
-		spec.StructuredInput = true
-		stdin = runner.UserMessage(in.text, in.images)
+	inv, err := s.Backend.Prepare(runner.Turn{
+		Spec:            spec,
+		Prompt:          in.text,
+		Images:          in.images,
+		BaseEnv:         s.BaseEnv,
+		AuthMode:        s.AuthMode,
+		MaxOutputTokens: lt.req.MaxOutputTokens,
+		ToolTimeout:     lt.req.Agent.Timeout,
+	})
+	if err != nil {
+		return &runner.Outcome{}, &prepareError{err}
 	}
-	env := runner.Env(s.BaseEnv, s.AuthMode)
-	if spec.ClientTools != "" {
-		env = runner.WithClientToolsTimeout(env, lt.req.Agent.Timeout)
-	}
-	env = runner.WithMaxOutputTokens(env, lt.req.MaxOutputTokens)
+	defer inv.Cleanup()
 	req := runner.Request{
 		Binary:  s.Binary,
-		Args:    runner.Args(spec),
-		Env:     env,
+		Args:    inv.Args,
+		Env:     inv.Env,
 		Dir:     lt.req.Cwd,
-		Stdin:   stdin,
+		Stdin:   inv.Stdin,
 		Timeout: lt.req.Agent.Timeout,
+		Parser:  s.Backend.NewParser(),
 		OnEvent: lt.onEvent,
 	}
-	lt.log.Debug("starting CLI", "resume", resumeID != "", "images", len(in.images), "prompt", redact.Truncate(text, maxLoggedText))
+	lt.log.Debug("starting CLI", "backend", s.Backend.Name(), "resume", resumeID != "", "images", len(in.images),
+		"prompt", redact.Truncate(in.text, maxLoggedText))
 	return s.Executor.Run(lt.ctx, req)
 }
+
+// prepareError is a turn the backend cannot express on its command line.
+type prepareError struct{ err error }
+
+func (e *prepareError) Error() string { return e.err.Error() }
 
 func (lt *liveTurn) onEvent(ev runner.Event) {
 	switch ev.Kind {
 	case runner.KindInit:
-		lt.log.Debug("CLI session started", "claude_session_id", ev.SessionID, "model", ev.Model, "api_key_source", ev.APIKeySource)
+		lt.log.Debug("CLI session started", "cli_session_id", ev.SessionID, "model", ev.Model, "api_key_source", ev.APIKeySource)
 	case runner.KindText:
 		lt.log.Debug("assistant text", "text", redact.Truncate(ev.Text, maxLoggedText))
 		lt.mu.Lock()
@@ -124,7 +133,11 @@ func (lt *liveTurn) onEvent(ev runner.Event) {
 	case runner.KindMalformed:
 		lt.log.Debug("ignored non-JSON output line")
 	case runner.KindIgnored:
-		lt.log.Debug("ignored event", "type", ev.Type)
+		if ev.Text != "" {
+			lt.log.Debug("CLI notice", "type", ev.Type, "text", redact.Truncate(ev.Text, maxLoggedText))
+		} else {
+			lt.log.Debug("ignored event", "type", ev.Type)
+		}
 	}
 }
 

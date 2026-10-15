@@ -30,12 +30,13 @@ func (c *Config) resolveAgent(name string, f AgentFile) (*Agent, []error) {
 		DisallowedTools:  f.DisallowedTools,
 		ToolsEnabled:     true,
 		PermissionMode:   f.PermissionMode,
+		Sandbox:          f.Sandbox,
 		MaxTurns:         c.Defaults.MaxTurns,
 		MCPConfig:        c.abs(f.MCPConfig),
 		Timeout:          time.Duration(c.Defaults.TimeoutSeconds) * time.Second,
 	}
 	if a.Model == "" {
-		a.Model = DefaultModel
+		a.Model = c.defaultAgentModel()
 	}
 	if a.SystemPromptMode == "" {
 		a.SystemPromptMode = PromptModeAppend
@@ -61,6 +62,7 @@ func (c *Config) resolveAgent(name string, f AgentFile) (*Agent, []error) {
 		}
 		a.MaxTurns = *f.MaxTurns
 	}
+	c.validateCodexAgent(a, f, add)
 	if f.TimeoutSeconds != nil {
 		if *f.TimeoutSeconds < 0 {
 			add("timeout_seconds", "must not be negative, got %d", *f.TimeoutSeconds)
@@ -92,7 +94,7 @@ func (c *Config) isBuiltinName(name string) bool {
 	if !c.BuiltinModels {
 		return false
 	}
-	for _, a := range BuiltinAliases {
+	for _, a := range c.BuiltinNames() {
 		if name == c.BuiltinPrefix+a {
 			return true
 		}
@@ -102,10 +104,16 @@ func (c *Config) isBuiltinName(name string) bool {
 
 // builtinAgent returns a chat-only agent running model.
 func (c *Config) builtinAgent(name, model string) *Agent {
+	description := "Built-in chat-only model (" + model + ")"
+	if c.Backend == BackendCodex {
+		if model == CodexDefaultAlias {
+			model, description = "", "Built-in chat-only model (the model configured in the CLI)"
+		}
+	}
 	return &Agent{
 		Name:             name,
 		Model:            model,
-		Description:      "Built-in chat-only model (" + model + ")",
+		Description:      description,
 		SystemPromptMode: PromptModeAppend,
 		PermissionMode:   defaultPermissionMode,
 		MaxTurns:         c.Defaults.MaxTurns,

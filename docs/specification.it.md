@@ -2,7 +2,7 @@
 
 [English](specification.md) · **Italiano**
 
-Oct 15, 2026 · @Someone — **rev. 1.4**: function calling OpenAI (sezione 13), uso da orchestratori esterni (sezione 13.8), immagini (sezione 15), parametri di generazione (sezione 16), prefisso dei modelli configurabile e licenza GPL (sezione 14)
+Oct 15, 2026 · @Someone — **rev. 1.5**: backend CLI e CLI Codex (sezione 17); rev. 1.4: function calling OpenAI (sezione 13), uso da orchestratori esterni (sezione 13.8), immagini (sezione 15), parametri di generazione (sezione 16), prefisso dei modelli configurabile e licenza GPL (sezione 14)
 
 ## 1. Panoramica e obiettivi
 
@@ -73,8 +73,8 @@ Il codice è organizzato a livelli che comunicano tramite interfacce (dettagli i
 | Livello | Pacchetto | Interfacce usate | Implementazioni |
 | --- | --- | --- | --- |
 | HTTP | `server` | `turn.Service`, `stats.Reporter` | — |
-| Dominio | `turn` | `session.Store`, `session.Locker`, `runner.Executor`, `runner.Limiter`, `stats.Recorder`, `tools.Broker` | servizio di default |
-| Infrastruttura | `session`, `runner`, `stats`, `tools` | — | `MemoryStore`, `FileStore`, `KeyLocker`, `CLIExecutor`, `FIFOLimiter`, `Collector`, `JSONLUsageLog`, `HTTPBroker` |
+| Dominio | `turn` | `session.Store`, `session.Locker`, `runner.Backend`, `runner.Executor`, `runner.Limiter`, `stats.Recorder`, `tools.Broker` | servizio di default |
+| Infrastruttura | `session`, `runner`, `stats`, `tools` | — | `MemoryStore`, `FileStore`, `KeyLocker`, `StreamJSONBackend`, `CodexBackend`, `CLIExecutor`, `FIFOLimiter`, `Collector`, `JSONLUsageLog`, `HTTPBroker` |
 
 Il cablaggio delle implementazioni avviene in un solo punto (`cmd/agent-bridge/serve.go`).
 
@@ -193,7 +193,7 @@ Formato OpenAI: `{"error": {"message", "type", "code"}}`, con `type` e `code` ug
 | 404 | `model_not_found` | Agente inesistente o nome `bridge/<modello>` non valido |
 | 409 | `session_busy` | Solo se `sessions.on_busy: "reject"` e la sessione è in uso |
 | 429 | `queue_full` | Coda di attesa piena o attesa scaduta (sezione 7.5), con header `Retry-After` |
-| 502 | `claude_code_error` | Processo terminato con errore, esito diverso da `success`/`error_max_turns`, output non interpretabile |
+| 502 | `cli_error` | Processo terminato con errore, esito diverso da `success`/`error_max_turns`, output non interpretabile |
 | 503 | `server_error` | Arresto del server durante il turno |
 | 504 | `timeout` | Superato `timeout_seconds` dell'agente |
 
@@ -207,7 +207,7 @@ Ogni coppia (agente, chiave di sessione) corrisponde a una sessione di Claude Co
 
 La chiave è, nell'ordine: header `X-Session-Id`, campo `user`, oppure una chiave generata `sess_` + 24 caratteri esadecimali, restituita nell'header `X-Session-Id`. La chiave interna è `<agente>|<chiave>`, quindi la stessa chiave usata con agenti diversi produce sessioni distinte.
 
-Ogni voce del registro contiene: `claude_session_id`, `agent`, `cwd`, `created_at`, `last_used_at`, `turns`. Configurazione in `sessions`:
+Ogni voce del registro contiene: `cli_session_id`, `agent`, `cwd`, `created_at`, `last_used_at`, `turns`. Configurazione in `sessions`:
 
 | Campo | Default | Significato |
 | --- | --- | --- |
@@ -357,7 +357,7 @@ Ogni turno produce una riga di log, una voce opzionale nel file di utilizzo e un
 
 ### 9.1 Log
 
-Libreria `log/slog`, formato `text` (default) o `json`. Campi di ogni riga di fine turno: `request_id`, `agent`, `model` (effettivo, dall'evento `init`), `session_key`, `claude_session_id`, `resumed`, `turns`, `duration_ms`, `queue_ms`, `cost_usd`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`, `outcome` (`success`, `max_turns`, `error`, `timeout`, `canceled`, `tool_calls`). L'esito `tool_calls` indica un processo chiuso di proposito dopo aver restituito chiamate a funzione (modalità `stateless`); i token sono quelli dell'ultimo messaggio.
+Libreria `log/slog`, formato `text` (default) o `json`. Campi di ogni riga di fine turno: `request_id`, `agent`, `model` (effettivo, dall'evento `init`), `session_key`, `cli_session_id`, `resumed`, `turns`, `duration_ms`, `queue_ms`, `cost_usd`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`, `outcome` (`success`, `max_turns`, `error`, `timeout`, `canceled`, `tool_calls`). L'esito `tool_calls` indica un processo chiuso di proposito dopo aver restituito chiamate a funzione (modalità `stateless`); i token sono quelli dell'ultimo messaggio.
 
 ### 9.2 File di utilizzo
 
@@ -383,7 +383,7 @@ Go 1.22 o successivo, sola libreria standard a runtime; strumenti esterni ammess
 cmd/agent-bridge/        main, sottocomandi serve | check-config | doctor | version | mcp-tools
 internal/config/         caricamento file/env/flag, default, validazione
 internal/turn/           servizio di dominio: sessione, prompt, coda, esecuzione, turni in attesa di funzioni
-internal/runner/         argomenti CLI, ambiente, parsing eventi, Executor, Limiter
+internal/runner/         Backend (CLI predefinita, CLI Codex): argomenti, ambiente, parsing eventi; Executor, Limiter
   proc_unix.go           process group e terminazione su Unix
   proc_windows.go        terminazione dell'albero dei processi su Windows
 internal/prompt/         costruzione del prompt (sezione 6.4)
@@ -610,6 +610,9 @@ Configurazione consigliata per questo scenario: `{"client_tools": {"mode": "stat
 | Immagini | Rifiutate (400) | Accettate come parti `image_url` (15) | Parità con i client OpenAI |
 | Licenza | Da decidere | GNU GPL v3 o successiva (10.4) | Decisione del proprietario |
 | Parametri di generazione | Tutti accettati e ignorati | `reasoning_effort`, `response_format`, `max_tokens` mappati; `stop`, `n` emulati (16) | Usare ogni opzione offerta dalla CLI |
+| CLI | Solo la CLI predefinita | Interfaccia `runner.Backend`, CLI predefinita e CLI Codex (17) | Stessa API sopra l'uno o l'altro agente |
+| Codice di errore a monte | `claude_code_error` | `cli_error` | Neutro con ogni backend |
+| Campo id di sessione in log, file dei consumi e registro | `claude_session_id` | `cli_session_id` | Neutro con ogni backend |
 
 ## 15. Immagini
 
@@ -641,10 +644,33 @@ Il bridge pilota la CLI e non chiama mai direttamente l'API del modello (sezione
 | Parametro OpenAI | Mappatura | Note |
 | --- | --- | --- |
 | `reasoning_effort` | `--effort <livello>` | `none` e `minimal` → `low`; `low`, `medium`, `high` invariati; `xhigh` e `max` accettati come estensione. Altri valori → 400. I livelli disponibili dipendono dal modello |
-| `response_format` | `text`: nulla. `json_object`: `--json-schema '{"type":"object"}'`. `json_schema`: `--json-schema` con `json_schema.schema` (compatto, al massimo 64 KB) | La risposta è lo `structured_output` del risultato, compatto, come `content`. Subtype `error_max_structured_output_retries`, o successo senza `structured_output` → 502 `claude_code_error`. `json_schema.name` e `strict` sono accettati; la CLI valida sempre |
+| `response_format` | `text`: nulla. `json_object`: `--json-schema '{"type":"object"}'`. `json_schema`: `--json-schema` con `json_schema.schema` (compatto, al massimo 64 KB) | La risposta è lo `structured_output` del risultato, compatto, come `content`. Subtype `error_max_structured_output_retries`, o successo senza `structured_output` → 502 `cli_error`. `json_schema.name` e `strict` sono accettati; la CLI valida sempre |
 | `max_completion_tokens`, `max_tokens` | Variabile `CLAUDE_CODE_MAX_OUTPUT_TOKENS` per il processo (sostituisce un valore ereditato); prevale `max_completion_tokens` | Solo interi positivi. Limita ogni risposta del modello nel turno, non il totale del turno; `finish_reason` non diventa `length` |
 | `stop` | Stringa o array di al massimo 4 stringhe non vuote; il testo finale viene tagliato prima della prima occorrenza | Emulato dopo la generazione. Non applicato al JSON di `response_format`, ai testi di avanzamento in streaming né agli argomenti delle chiamate a funzione |
 | `n` | 1-8 turni indipendenti in parallelo, la scelta `i` dal turno `i` | Ogni scelta riceve una chiave di sessione nuova (nessuna ripresa) e funzioni del client senza stato (sezione 13.8). Usage, turni e costo sono sommati, la durata è la più lunga. Streaming: prima i chunk di ruolo per tutti gli indici, poi i chunk finali di ogni scelta appena completa. Il primo errore annulla le altre scelte e fa fallire la richiesta. Un rifiuto di `Admit` rilascia le scelte già ammesse (`turn.Service.Release`) |
 | `temperature`, `top_p`, `seed`, `logprobs`, `top_logprobs`, `presence_penalty`, `frequency_penalty`, `logit_bias` | — | Accettati e ignorati: nessun equivalente nella CLI |
 
 Da verificare sulla CLI reale (checklist 11.4): i livelli di `--effort` per modello, il campo `structured_output` e il subtype di errore con `-p --output-format stream-json`, e `CLAUDE_CODE_MAX_OUTPUT_TOKENS`.
+
+## 17. Backend CLI e la CLI Codex
+
+L'interfaccia `runner.Backend` isola tutto ciò che dipende dalla CLI: costruzione dell'invocazione di un turno (`Prepare`: argomenti, ambiente, stdin, file temporanei), lettura dell'output (`NewParser`), riconoscimento di una sessione ripresa che non esiste più (`ResumeMissing`), versione minima e se i consumi sono cumulativi. L'impostazione `backend` (`claude` per default, oppure `codex`; flag `-backend`, variabile `AGENT_BRIDGE_BACKEND`) sceglie l'implementazione all'avvio; API HTTP, sessioni, coda, funzioni del client, immagini e statistiche non cambiano.
+
+| Aspetto | `claude` (`StreamJSONBackend`) | `codex` (`CodexBackend`) |
+| --- | --- | --- |
+| Comando | `-p --output-format stream-json` | `exec --json`, `exec resume --json <thread>` |
+| Impostazioni | Flag | Override `-c chiave=valore` |
+| Solo chat | `--tools ""` | `sandbox_mode="read-only"`, funzioni con strumenti integrati disattivate, ricerca web disattivata |
+| Permessi degli strumenti | `permission_mode`, `allowed_tools`, `disallowed_tools` | Campo `sandbox` dell'agente; `approval_policy="never"` |
+| Server MCP, funzioni del client | File `--mcp-config` | Gli stessi file convertiti in `mcp_servers.*`, strumenti pre-approvati |
+| Immagini | Messaggio utente stream-json | File temporanei e `--image` |
+| Output strutturato | `--json-schema`, `structured_output` | `--output-schema`, messaggio finale interpretato come JSON; `json_object` come istruzione |
+| Massimo token in uscita | `CLAUDE_CODE_MAX_OUTPUT_TOKENS` | Non disponibile, ignorato |
+| Evento di risultato | `result` | Sintetizzato da `turn.completed` / `turn.failed` |
+| Consumi | Per turno | Totali del thread: il bridge li salva nella sessione (`cli_usage`) e restituisce la differenza |
+| Costo | `total_cost_usd` | Non riportato (0) |
+| Credenziali rimosse in `subscription` | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` | `CODEX_API_KEY`, `CODEX_ACCESS_TOKEN`, `OPENAI_API_KEY` |
+| La modalità `api` richiede | `ANTHROPIC_API_KEY` | `CODEX_API_KEY` |
+| Versione minima | `2.1.128` | `0.162.0` |
+
+La mappatura di Codex è stata verificata con la CLI reale (0.162.1) collegata a un finto server locale della Responses API: chat, ripresa, function calling tramite MCP, immagini, `--output-schema`, effort, istruzioni sostituite, ripiego sulla ripresa e consumi cumulativi. Guida utente: `docs/codex.it.md`.

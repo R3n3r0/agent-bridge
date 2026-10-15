@@ -41,7 +41,7 @@ func (d *doctorReport) fail(format string, a ...any) {
 func doctor(args []string, stdout, stderr io.Writer) int {
 	var live bool
 	fl, err := parseFlags("doctor", args, stderr, func(fs *flag.FlagSet) {
-		fs.BoolVar(&live, "live", false, "run a one-turn test request on the haiku model")
+		fs.BoolVar(&live, "live", false, "run a one-turn test request (haiku model, or the codex default model)")
 	})
 	if err != nil {
 		return 2
@@ -54,13 +54,22 @@ func doctor(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	d.ok("configuration is valid (%d models)", len(cfg.Agents))
+	backend, err := runner.NewBackend(cfg.Backend)
+	if err != nil {
+		d.fail("backend: %v", err)
+		return 1
+	}
+	d.ok("backend: %s", backend.Name())
 
 	bin, err := exec.LookPath(cfg.Binary)
 	if err != nil {
 		d.fail("CLI binary %q not found in PATH: install it and log in once interactively", cfg.Binary)
 	} else {
 		d.ok("CLI binary: %s", bin)
-		checkVersion(d, bin)
+		checkVersion(d, bin, backend.MinVersion())
+		if cfg.Backend == config.BackendCodex && cfg.AuthMode == config.AuthSubscription {
+			checkCodexLogin(d, bin)
+		}
 	}
 
 	if err := cfg.ValidateAuth(os.Getenv); err != nil {
@@ -101,7 +110,7 @@ func doctor(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if live && bin != "" && !d.failed {
-		liveCheck(d, cfg)
+		liveCheck(d, cfg, backend)
 	} else if live {
 		d.warn("live check skipped because of earlier failures")
 	}
@@ -111,7 +120,7 @@ func doctor(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func checkVersion(d *doctorReport, bin string) {
+func checkVersion(d *doctorReport, bin, minVersion string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, bin, "--version").Output()
@@ -124,11 +133,31 @@ func checkVersion(d *doctorReport, bin string) {
 		d.warn("cannot parse CLI version from %q", strings.TrimSpace(string(out)))
 		return
 	}
-	if compareVersions(got, runner.MinCLIVersion) < 0 {
-		d.fail("CLI version %s is older than the minimum supported %s: update it", got, runner.MinCLIVersion)
+	if compareVersions(got, minVersion) < 0 {
+		d.fail("CLI version %s is older than the minimum supported %s: update it", got, minVersion)
 		return
 	}
-	d.ok("CLI version %s (minimum %s)", got, runner.MinCLIVersion)
+	d.ok("CLI version %s (minimum %s)", got, minVersion)
+}
+
+// checkCodexLogin verifies that the codex CLI has a stored login.
+func checkCodexLogin(d *doctorReport, bin string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "login", "status")
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	status := strings.TrimSpace(string(out))
+	if status == "" {
+		lines := strings.Split(strings.TrimSpace(stderr.String()), "\n")
+		status = lines[len(lines)-1]
+	}
+	if err != nil {
+		d.fail("codex login status: %s: run \"codex login\" once interactively", redact.Truncate(status, 200))
+		return
+	}
+	d.ok("codex login: %s", redact.Truncate(status, 200))
 }
 
 // compareVersions compares two x.y.z strings.
@@ -167,7 +196,7 @@ func checkDirWritable(dir string) error {
 	return os.Remove(name)
 }
 
-func liveCheck(d *doctorReport, cfg *config.Config) {
+func liveCheck(d *doctorReport, cfg *config.Config, backend runner.Backend) {
 	dir, err := os.MkdirTemp("", "agent-bridge-doctor-")
 	if err != nil {
 		d.fail("live check: %v", err)
@@ -175,13 +204,28 @@ func liveCheck(d *doctorReport, cfg *config.Config) {
 	}
 	defer os.RemoveAll(dir)
 	spec := runner.Spec{Model: "haiku", ToolsEnabled: false, MaxTurns: 1}
+	if cfg.Backend == config.BackendCodex {
+		spec = runner.Spec{ToolsEnabled: false}
+	}
+	inv, err := backend.Prepare(runner.Turn{
+		Spec:     spec,
+		Prompt:   "Reply with the single word OK.",
+		BaseEnv:  os.Environ(),
+		AuthMode: cfg.AuthMode,
+	})
+	if err != nil {
+		d.fail("live check: %v", err)
+		return
+	}
+	defer inv.Cleanup()
 	out, err := runner.CLIExecutor{}.Run(context.Background(), runner.Request{
 		Binary:  cfg.Binary,
-		Args:    runner.Args(spec),
-		Env:     runner.Env(os.Environ(), cfg.AuthMode),
+		Args:    inv.Args,
+		Env:     inv.Env,
 		Dir:     dir,
-		Stdin:   "Reply with the single word OK.",
+		Stdin:   inv.Stdin,
 		Timeout: 2 * time.Minute,
+		Parser:  backend.NewParser(),
 	})
 	if err != nil {
 		d.fail("live check: %v: %s", err, redact.Tail(strings.TrimSpace(out.Stderr), 2000))
@@ -196,6 +240,13 @@ func liveCheck(d *doctorReport, cfg *config.Config) {
 		d.fail("live check: subscription mode but the CLI used an API key (source %q)", out.APIKeySource)
 		return
 	}
+	model, ms := out.Model, res.DurationMs
+	if model == "" {
+		model = "(configured in the CLI)"
+	}
+	if ms == 0 {
+		ms = out.Duration.Milliseconds()
+	}
 	d.ok("live check: model %s answered %q in %d ms (estimated cost $%.6f)",
-		out.Model, redact.Truncate(strings.TrimSpace(res.Result), 40), res.DurationMs, res.CostUSD)
+		model, redact.Truncate(strings.TrimSpace(res.Result), 40), ms, res.CostUSD)
 }

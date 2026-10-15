@@ -12,14 +12,14 @@ import (
 func (c *Config) ValidateAuth(getenv func(string) string) error {
 	switch c.AuthMode {
 	case AuthSubscription:
-		for _, k := range []string{EnvUpstreamKey, EnvUpstreamTok} {
+		for _, k := range refusedCredentials(c.Backend) {
 			if getenv(k) != "" {
 				return fmt.Errorf("%s=subscription but %s is set: unset it, or use %s=api to run with an API key", EnvAuthMode, k, EnvAuthMode)
 			}
 		}
 	case AuthAPI:
-		if getenv(EnvUpstreamKey) == "" {
-			return fmt.Errorf("%s=api requires %s to be set", EnvAuthMode, EnvUpstreamKey)
+		if k := requiredCredential(c.Backend); getenv(k) == "" {
+			return fmt.Errorf("%s=api requires %s to be set", EnvAuthMode, k)
 		}
 	case "":
 		return fmt.Errorf("%s is required: set it to subscription (CLI login) or api (API key)", EnvAuthMode)

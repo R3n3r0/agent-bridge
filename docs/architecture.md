@@ -12,11 +12,11 @@ HTTP (internal/server)            OpenAI parsing, SSE, auth, CORS, error mapping
    ▼
 Domain (internal/turn)            session, prompt, queue, execution, resume, statistics,
    │                              suspended turns awaiting function results
-   │  session.Store, session.Locker, runner.Executor, runner.Limiter, stats.Recorder, tools.Broker
+   │  session.Store, session.Locker, runner.Backend, runner.Executor, runner.Limiter, stats.Recorder, tools.Broker
    ▼
 Infrastructure                    replaceable implementations
    internal/session   MemoryStore, FileStore, KeyLocker
-   internal/runner    CLIExecutor (real process), FIFOLimiter, per-OS process control
+   internal/runner    StreamJSONBackend, CodexBackend, CLIExecutor (real process), FIFOLimiter, per-OS process control
    internal/stats     Collector, JSONLUsageLog, DiscardUsage
    internal/tools     HTTPBroker, client functions MCP server (ServeMCP)
    internal/media     HTTPResolver: data: URLs and image downloads with address checks
@@ -29,6 +29,8 @@ Infrastructure                    replaceable implementations
 | `Service` | `turn` | default service (`NewService`) | Runs a turn: `Admit` (checks before the response) and `Execute` |
 | `Store` | `session` | `MemoryStore`, `FileStore` | Session persistence with TTL and LRU |
 | `Locker` | `session` | `KeyLocker` | Per-session mutual exclusion |
+| `Backend` | `runner` | `StreamJSONBackend`, `CodexBackend` | CLI dialect: builds the invocation of a turn, parses its output, detects a missing resumed session |
+| `Parser` | `runner` | one per backend | Turns stdout lines into the bridge's events |
 | `Executor` | `runner` | `CLIExecutor` | Runs a CLI process and collects its events |
 | `Limiter` | `runner` | `FIFOLimiter` | Maximum concurrency and FIFO queue |
 | `Recorder`, `Reporter` | `stats` | `Collector` | Recording of turns; exposure of `/stats` and `/metrics` |
@@ -85,10 +87,11 @@ the HTTP layer knows the status codes: the mapping is in
 ## Code organization
 
 - Every interface is declared in its own file, named after the concept
-  (`session/session.go`, `runner/executor.go`, `runner/limiter.go`,
+  (`session/session.go`, `runner/backend.go`, `runner/executor.go`, `runner/limiter.go`,
   `tools/broker.go`, `media/media.go`, `stats/usage.go`, `turn/service.go`).
 - Every implementation lives in a separate file (`session/memory.go`,
   `session/file.go`, `runner/cli.go`, `runner/fifo.go`,
+  `runner/streamjson.go`, `runner/codex.go`,
   `tools/httpbroker.go`, `media/httpresolver.go`, `stats/collector.go`,
   `stats/jsonl.go`, `turn/default.go`).
 - Large implementations are split by responsibility: the default turn service
@@ -106,6 +109,9 @@ the HTTP layer knows the status codes: the mapping is in
 - **Another usage destination** (e.g. a database): implement
   `stats.UsageSink`.
 - **Remote or container execution**: implement `runner.Executor`.
+- **Another CLI**: implement `runner.Backend` (and its `Parser`) in its own
+  files, as `runner/codex.go`, `codex_config.go` and `codex_events.go` do for
+  the Codex CLI, and add it to `runner.NewBackend`.
 - **Tests**: the service is tested with fakes of the interfaces, without processes or
   files (`internal/turn/service_test.go`); the server is tested end-to-end with a
   fake binary of the CLI (`testdata/fakecli`).

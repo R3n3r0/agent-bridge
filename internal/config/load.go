@@ -11,7 +11,9 @@ import (
 func defaults() *Config {
 	return &Config{
 		Listen:               DefaultListen,
+		Backend:              BackendDefault,
 		Binary:               DefaultBinary,
+		CodexBinary:          DefaultCodexBinary,
 		MaxConcurrent:        DefaultMaxConcurrent,
 		MaxQueue:             DefaultMaxQueue,
 		QueueTimeoutSeconds:  DefaultQueueTimeout,
@@ -78,6 +80,9 @@ func Load(f *Flags, getenv func(string) string) (*Config, error) {
 	if v := getenv(EnvListen); v != "" {
 		cfg.Listen = v
 	}
+	if v := getenv(EnvBackend); v != "" {
+		cfg.Backend = v
+	}
 	if v := getenv(EnvLogFormat); v != "" {
 		cfg.LogFormat = v
 	}
@@ -99,6 +104,12 @@ func Load(f *Flags, getenv func(string) string) (*Config, error) {
 	}
 	if f.isSet("claude-bin") {
 		cfg.Binary = f.Binary
+	}
+	if f.isSet("backend") {
+		cfg.Backend = f.Backend
+	}
+	if f.isSet("codex-bin") {
+		cfg.CodexBinary = f.CodexBinary
 	}
 	if f.isSet("log-format") {
 		cfg.LogFormat = f.LogFormat
