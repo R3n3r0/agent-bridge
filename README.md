@@ -5,11 +5,9 @@
 ufficiale di Claude Code in modalità headless
 (`claude -p --output-format stream-json`).
 
-Qualsiasi client o framework che parla OpenAI può così usare Claude Code come
-motore di esecuzione (lettura e modifica di file, comandi, ricerca nel codice)
-cambiando solo `base_url`, `api_key` e `model`, e assegnare a ogni agente un
-modello, un system prompt, dei tool e una cartella di lavoro diversi, lasciando
-il controllo del flusso al proprio orchestratore.
+Qualsiasi client o framework che parla OpenAI può usarlo cambiando solo
+`base_url`, `api_key` e `model`: chat, streaming e function calling funzionano
+con gli SDK ufficiali senza modifiche.
 
 > **Progetto indipendente.** agent-bridge non è sviluppato, approvato né
 > supportato da Anthropic. Esegue il binario ufficiale `claude` installato
@@ -18,6 +16,25 @@ il controllo del flusso al proprio orchestratore.
 - Binario singolo, sola libreria standard Go a runtime.
 - Linux, macOS e Windows (amd64 e arm64).
 - Stessa build per sviluppo (login con abbonamento) e produzione (API key).
+- Function calling OpenAI (`tools`, `tool_calls`), anche in streaming.
+
+## Due modi di usarlo
+
+| | Come modello | Come agente sul server |
+| --- | --- | --- |
+| Chi definisce l'agente | Il tuo client o la tua piattaforma: `system`, `tools`, scelta del modello | Il file di configurazione del bridge |
+| Tool disponibili | Solo le funzioni che il client manda in `tools`, eseguite dal client | Tool della CLI sulla macchina del server (file, comandi, ricerca, server MCP), più le eventuali funzioni del client |
+| `model` | `claude-code/opus`, `claude-code/sonnet`, `claude-code/haiku`, `claude-code/<nome modello>` | Il nome dell'agente configurato |
+| Configurazione | Nessuna | File JSON |
+| Sezione | [Uso come modello](#uso-come-modello) | [Agenti sul server](#agenti-sul-server) |
+
+I "tool" sono quindi di due tipi, entrambi supportati:
+
+- **funzioni del client** (function calling OpenAI): le definisce e le esegue
+  il client; il modello le chiama tramite `tool_calls`;
+- **tool dell'agente**: `Read`, `Edit`, `Bash`, server MCP… eseguiti dalla CLI
+  sul server, secondo i permessi dell'agente; il client vede solo il
+  risultato finale.
 
 ## Avvio rapido
 
@@ -31,17 +48,101 @@ curl -s http://127.0.0.1:8787/v1/chat/completions \
   -d '{"model":"claude-code/haiku","messages":[{"role":"user","content":"Ciao!"}]}'
 ```
 
-Senza file di configurazione il server ascolta su `127.0.0.1:8787` ed espone i
-modelli `claude-code/opus`, `claude-code/sonnet` e `claude-code/haiku` in modalità
-solo chat (nessun tool, cartella di lavoro temporanea vuota).
+Senza file di configurazione il server ascolta su `127.0.0.1:8787` e accetta i
+modelli `claude-code/opus`, `claude-code/sonnet`, `claude-code/haiku` e
+`claude-code/<nome modello>` (il nome dopo il prefisso è passato alla CLI così
+com'è). Sono modelli *solo chat*: nessun tool del server, cartella di lavoro
+temporanea vuota, ma accettano le funzioni del client.
 
 In alternativa scaricare un binario dalla pagina delle release (archivi e
 `checksums.txt` per ogni piattaforma).
 
-## Agenti configurati
+## Uso come modello
+
+È lo scenario di chi ha già una piattaforma con agenti, grafo e ciclo di vita
+propri (per esempio un sistema ReAct): il bridge si comporta come un modello
+OpenAI e l'agente è quello definito nella piattaforma.
+
+| Nella piattaforma | Nella richiesta |
+| --- | --- |
+| Istruzioni dell'agente | messaggio `system` |
+| Tool dell'agente | `tools` |
+| Modello | `claude-code/<alias o nome modello>` |
+
+Due opzioni rendono il bridge senza stato e fanno dell'agente della piattaforma
+l'unico agente. Si impostano nella configurazione oppure per singola richiesta
+con un header:
+
+| Chiave di configurazione | Header | Effetto |
+| --- | --- | --- |
+| `client_tools.mode: "stateless"` | `X-Agent-Bridge-Tool-Mode: stateless` | Dopo aver restituito `tool_calls` il processo viene chiuso: ogni richiesta è un passo del grafo e la cronologia inviata dal client è l'unica fonte di verità. Ramificazioni, retry e checkpoint restano nella piattaforma |
+| `system_messages: "replace"` | `X-Agent-Bridge-System-Mode: replace` | I messaggi `system` diventano il system prompt effettivo al posto di quello della CLI, a ogni passo. Con `append` vi si aggiungono |
+
+Configurazione consigliata per questo scenario:
+
+```json
+{ "client_tools": { "mode": "stateless" }, "system_messages": "replace" }
+```
+
+In questo scenario non inviare `X-Session-Id`: ogni richiesta avvia un processo
+nuovo con la cronologia completa. Costa un po' di latenza per passo, in cambio
+di nessuno stato nascosto nel bridge.
+
+## Function calling
+
+Le funzioni definite dal client con `tools` funzionano come con l'API OpenAI:
+il modello risponde con `tool_calls` e `finish_reason: "tool_calls"`, il client
+esegue le funzioni e rimanda i risultati con messaggi `role: "tool"`, e il
+modello prosegue. Funziona anche in streaming (`delta.tool_calls`) e senza
+header di sessione.
+
+```python
+r = client.chat.completions.create(model="claude-code/sonnet", messages=messages, tools=tools)
+while r.choices[0].finish_reason == "tool_calls":
+    messages.append(r.choices[0].message)
+    for call in r.choices[0].message.tool_calls:
+        messages.append({"role": "tool", "tool_call_id": call.id,
+                         "content": run(call.function.name, call.function.arguments)})
+    r = client.chat.completions.create(model="claude-code/sonnet", messages=messages, tools=tools)
+```
+
+Esempio completo: [examples/python/tools.py](examples/python/tools.py).
+
+Supportati: `tools` (tipo `function`), `tool_choice` (`auto`, `none`,
+`required`, funzione specifica), `parallel_tool_calls` (chiamate parallele
+restituite insieme) e il formato deprecato `functions`/`function_call`.
+
+**Come funziona.** Le funzioni del client vengono offerte alla CLI come tool di
+un server MCP standard, servito dal bridge stesso (sottocomando interno
+`mcp-tools`). Quando il modello ne chiama una, il bridge restituisce la chiamata
+al client. Poi, a seconda di `client_tools.mode`:
+
+| Modalità | Cosa succede | Quando sceglierla |
+| --- | --- | --- |
+| `stateful` (default) | Il processo resta in attesa; la richiesta con i risultati viene riconosciuta dai `tool_call_id` e lo stesso processo riprende da dove si era fermato | Client semplici: meno latenza tra i passi |
+| `stateless` | Il processo si chiude; la richiesta con i risultati avvia un processo nuovo con la cronologia completa | Orchestratori con stato proprio (vedi [Uso come modello](#uso-come-modello)) |
+
+Differenze da conoscere:
+
+- `tool_choice` diverso da `auto`/`none` e `parallel_tool_calls: false` sono
+  resi come istruzioni al modello: il modello li rispetta, ma non sono vincoli
+  rigidi come nell'API OpenAI. Anche gli schemi `parameters` (e `strict`)
+  guidano il modello ma non vengono imposti.
+- In modalità `stateful` il processo in attesa occupa uno slot di concorrenza.
+  Se i risultati non arrivano entro `client_tools.wait_timeout_seconds`
+  (default 600) il processo viene fermato; una richiesta successiva con i
+  risultati riparte da un processo nuovo con la cronologia completa, quindi
+  funziona comunque.
+- Con il formato deprecato `functions` i risultati non hanno id: ogni chiamata
+  chiude il processo, come in modalità `stateless`.
+- In una risposta `tool_calls` l'`usage` riguarda solo l'ultimo messaggio del
+  modello; i totali del turno sono nei log e in `/stats`.
+
+## Agenti sul server
 
 Un file JSON associa un nome di modello a un agente: modello, system prompt,
-tool, permessi e cartella di lavoro.
+tool della CLI, permessi e cartella di lavoro. Serve quando l'agente deve
+lavorare sulla macchina del server, per esempio su un repository.
 
 ```json
 {
@@ -80,89 +181,27 @@ r = client.chat.completions.create(
 print(r.choices[0].message.content)
 ```
 
-Le conversazioni multi-turno usano le sessioni della CLI: il client invia la
-cronologia completa come con OpenAI, il server riprende la sessione con
-`--resume` e passa solo i nuovi messaggi utente. La chiave di sessione è
-l'header `X-Session-Id`, oppure il campo `user`, oppure una chiave generata
-restituita nell'header `X-Session-Id` della risposta.
+Un agente sul server può ricevere anche le funzioni del client in `tools`:
+userà sia i propri tool sia quelle.
 
 Riferimento completo: [docs/configuration.md](docs/configuration.md). Esempio
 commentato: [examples/agents.example.json](examples/agents.example.json).
 
-## Function calling (tools)
+## Conversazioni e sessioni
 
-Le funzioni definite dal client con `tools` funzionano come con l'API OpenAI:
-il modello risponde con `tool_calls` e `finish_reason: "tool_calls"`, il client
-esegue le funzioni e rimanda i risultati con messaggi `role: "tool"`, e il
-modello prosegue. Il ciclo standard degli SDK funziona senza modifiche, anche
-in streaming (`delta.tool_calls`) e senza header di sessione.
-
-```python
-r = client.chat.completions.create(model="coder", messages=messages, tools=tools)
-if r.choices[0].finish_reason == "tool_calls":
-    messages.append(r.choices[0].message)
-    for call in r.choices[0].message.tool_calls:
-        messages.append({"role": "tool", "tool_call_id": call.id,
-                         "content": run(call.function.name, call.function.arguments)})
-    r = client.chat.completions.create(model="coder", messages=messages, tools=tools)
-```
-
-Come funziona: le funzioni del client vengono offerte alla CLI come tool di un
-server MCP standard (il bridge stesso, sottocomando `mcp-tools`). Quando il
-modello ne chiama una, il bridge restituisce la chiamata al client e tiene in
-attesa il processo; la richiesta successiva viene riconosciuta dai
-`tool_call_id` e il processo riprende esattamente da dove si era fermato. Le
-funzioni vengono eseguite dal client, mai sul server, quindi sono disponibili
-anche per gli agenti solo chat e i modelli built-in.
-
-Supportati: `tools` (tipo `function`), `tool_choice` (`auto`, `none`,
-`required`, funzione specifica), `parallel_tool_calls` (chiamate parallele
-restituite insieme) e il formato deprecato `functions`/`function_call`.
-
-Differenze da conoscere:
-
-- `tool_choice` diverso da `auto`/`none` e `parallel_tool_calls: false` sono
-  resi come istruzioni al modello: il modello li rispetta, ma non sono vincoli
-  rigidi come nell'API OpenAI. Anche gli schemi `parameters` (e `strict`)
-  guidano il modello ma non vengono imposti.
-- Mentre attende i risultati, il processo occupa uno slot di concorrenza. Se i
-  risultati non arrivano entro `client_tools.wait_timeout_seconds` (default
-  600) il processo viene fermato; una richiesta successiva con i risultati
-  riparte da un processo nuovo con l'intera cronologia, quindi funziona
-  comunque, solo più lentamente.
-- Con il formato deprecato `functions` i risultati non hanno id: ogni chiamata
-  chiude il processo e la richiesta successiva riparte dalla cronologia.
-
-## Uso con un orchestratore proprio (grafo ReAct)
-
-Se agenti, grafo e ciclo di vita sono definiti nella tua piattaforma, il bridge
-può comportarsi come un modello OpenAI puro, senza file di configurazione:
-
-| Nella piattaforma | Nella richiesta |
-| --- | --- |
-| Istruzioni dell'agente | messaggio `system` |
-| Tool dell'agente | `tools` |
-| Modello | `claude-code/opus`, `claude-code/sonnet`, `claude-code/haiku` o `claude-code/<nome modello>` |
-
-Due opzioni rendono il bridge senza stato e fanno dell'agente della piattaforma
-l'unico agente:
-
-| Header (o chiave di configurazione) | Effetto |
-| --- | --- |
-| `X-Agent-Bridge-Tool-Mode: stateless` (`client_tools.mode`) | Dopo aver restituito `tool_calls` il processo viene chiuso: ogni richiesta è un passo del grafo e la cronologia inviata dal client è l'unica fonte di verità. Ramificazioni, retry e checkpoint restano nella piattaforma |
-| `X-Agent-Bridge-System-Mode: replace` (`system_messages`) | I messaggi `system` diventano il system prompt effettivo al posto di quello della CLI (con `append` vi si aggiungono) |
-
-Configurazione minima consigliata in questo scenario (opzionale: gli stessi
-valori si possono mandare come header):
-
-```json
-{ "client_tools": { "mode": "stateless" }, "system_messages": "replace" }
-```
-
-In modalità senza stato ogni passo avvia un processo nuovo con la cronologia
-completa: più latenza per passo, in cambio di nessuno stato nascosto. Non
-inviare `X-Session-Id` in questo scenario: la cronologia la gestisce la
-piattaforma.
+- **Senza `X-Session-Id`** (comportamento OpenAI): ogni richiesta avvia un
+  processo nuovo; la cronologia inviata dal client viene trasformata in un
+  unico prompt.
+- **Con `X-Session-Id`** (o il campo `user`): la stessa chiave riprende la
+  sessione della CLI con `--resume`, e alla CLI arrivano solo i messaggi nuovi
+  (utente e risultati dei tool) successivi all'ultima risposta dell'assistente.
+  Più veloce nelle conversazioni lunghe. La chiave, generata se assente, è
+  sempre restituita nell'header `X-Session-Id` della risposta.
+- I messaggi `system` sono messi in testa al prompt (`system_messages: "prompt"`,
+  default): in una sessione ripresa contano solo quelli del primo turno. Con
+  `append` o `replace` sono passati come system prompt e valgono a ogni turno.
+- Le risposte alle `tool_calls` in modalità `stateful` riprendono il processo
+  in attesa tramite i `tool_call_id`, indipendentemente dalla sessione.
 
 ## Sviluppo con abbonamento, produzione con API key
 
@@ -209,9 +248,9 @@ Riferimenti, da ricontrollare perché **le regole possono cambiare**:
 
 ## Sicurezza
 
-Un agente con tool abilitati può leggere, scrivere ed eseguire comandi: chi
-raggiunge il server ha l'equivalente di una shell limitata. Le impostazioni di
-default sono chiuse e ogni apertura è esplicita.
+Un agente sul server con tool abilitati può leggere, scrivere ed eseguire
+comandi: chi raggiunge il server ha l'equivalente di una shell limitata. Le
+impostazioni di default sono chiuse e ogni apertura è esplicita.
 
 - **Rete.** Ascolto di default su `127.0.0.1:8787`. Un indirizzo non loopback
   richiede `allow_remote: true` (o `-allow-remote`) **e** `AGENT_BRIDGE_API_KEY`.
@@ -222,11 +261,19 @@ default sono chiuse e ogni apertura è esplicita.
   tempo costante). `/healthz` e `/readyz` restano aperti.
 - **CORS** disattivato; si abilita con una lista esatta di origini
   (`cors_origins`), senza caratteri jolly.
+- **Modelli `claude-code/*`** sempre solo chat: nessun tool del server, in
+  qualsiasi modalità.
+- **Funzioni del client** eseguite solo dal client, mai sul server. Le chiamate
+  passano da un broker interno su `127.0.0.1` con porta casuale e un token
+  diverso per ogni turno; i file del turno sono privati e rimossi alla fine.
 - **Override per richiesta** (`X-Agent-Cwd`, `X-Agent-Allowed-Tools`,
   `X-Agent-System-Prompt`) rifiutati con 403 se non abilitati in `overrides`;
   possono solo restringere i tool, la cartella deve stare dentro una radice
   ammessa (anche dopo la risoluzione dei symlink), il system prompt viene solo
-  aggiunto. Mai applicabili ai modelli built-in.
+  aggiunto. Mai applicabili ai modelli `claude-code/*`.
+- **`system_messages`.** Con `replace` il system prompt della CLI viene
+  sostituito dai messaggi della richiesta (il `system_prompt` dell'agente
+  resta in testa); i permessi dei tool dell'agente non cambiano.
 - **`bypassPermissions`** è rifiutato a meno di `allow_bypass_permissions: true`,
   e in quel caso all'avvio compare un avviso per ogni agente interessato.
 - **Log.** A livello `info` e superiori non vengono mai registrati prompt o
@@ -237,69 +284,84 @@ default sono chiuse e ogni apertura è esplicita.
   terminano l'intero albero dei processi (process group su Unix, `taskkill /T`
   su Windows).
 
-## Esempi di client
+## Riferimento rapido
+
+Esempi di client:
 
 - Go con l'SDK ufficiale: [examples/go](examples/go/main.go)
 - Python con l'SDK ufficiale: [examples/python/client.py](examples/python/client.py)
+- Python, function calling: [examples/python/tools.py](examples/python/tools.py)
 - curl: [examples/curl.sh](examples/curl.sh)
 
-Endpoint disponibili:
+Endpoint:
 
 | Metodo e percorso | Scopo |
 | --- | --- |
-| `POST /v1/chat/completions` | Esegue un turno di un agente (JSON o SSE) |
-| `GET /v1/models`, `GET /v1/models/{id}` | Elenca agenti e modelli built-in |
+| `POST /v1/chat/completions` | Esegue un turno (JSON o SSE) |
+| `GET /v1/models`, `GET /v1/models/{id}` | Elenca agenti configurati e alias `claude-code/*` (i nomi `claude-code/<nome modello>` rispondono al dettaglio ma non sono elencati) |
 | `GET /stats` | Statistiche per agente; `?reset=true` le azzera dopo averle restituite |
 | `GET /metrics` | Metriche Prometheus (con `metrics: true`) |
 | `GET /healthz`, `GET /readyz` | Liveness e readiness |
 
+Header di richiesta:
+
+| Header | Effetto |
+| --- | --- |
+| `X-Session-Id`, `X-Session-Reset` | Sessione da riprendere o ricominciare |
+| `X-Agent-Bridge-Tool-Mode` | `stateful` o `stateless` per le funzioni del client |
+| `X-Agent-Bridge-System-Mode` | `prompt`, `append` o `replace` per i messaggi `system` |
+| `X-Agent-Cwd`, `X-Agent-Allowed-Tools`, `X-Agent-System-Prompt` | Override, solo se abilitati |
+| `X-Request-Id` | Identificativo riportato nei log e nella risposta |
+
+Header di risposta: `X-Session-Id`, `X-Request-Id` e, nelle risposte non stream,
+`X-Agent-Bridge-Turns`, `X-Agent-Bridge-Cost-USD`, `X-Agent-Bridge-Duration-Ms`.
+
 Comandi: `agent-bridge serve` (default), `check-config`, `doctor [-live]`,
-`version`. `doctor` controlla la CLI e la sua versione, la coerenza della
-modalità di autenticazione e i permessi delle cartelle; con `-live` esegue un
-turno di prova su Haiku.
+`version`; `mcp-tools` è interno, avviato dalla CLI per le funzioni del client.
+`doctor` controlla la CLI e la sua versione, la coerenza della modalità di
+autenticazione e i permessi delle cartelle; con `-live` esegue un turno di
+prova su Haiku.
 
 ## Limiti noti
 
-- I parametri OpenAI `response_format`, `temperature`, `top_p`, `n`,
+- I parametri OpenAI `response_format`, `temperature`, `top_p`, `n`, `stop`,
   `logprobs`, `max_tokens` sono accettati e ignorati.
-- Il function calling è supportato con le differenze descritte nella sezione
-  dedicata (vincoli di `tool_choice` e degli schemi espressi come istruzioni).
+- Function calling: `tool_choice` vincolante, `parallel_tool_calls: false` e gli
+  schemi delle funzioni sono istruzioni al modello, non vincoli imposti.
 - Solo contenuto testuale: immagini e audio producono 400 `unsupported_content`.
 - Nessun supporto a `/v1/responses`, `/v1/embeddings`, immagini, audio, né ad
   altri provider.
 - Prompt fino a 9 MB (la CLI limita stdin a 10 MB).
-- In streaming gli header `X-Agent-Bridge-*` non sono disponibili (gli header
-  partono prima dell'esecuzione); costo e token sono nel log, in `/stats` e nel
-  chunk `usage` se richiesto con `stream_options.include_usage`.
+- In streaming gli header di risposta `X-Agent-Bridge-Turns`, `-Cost-USD` e
+  `-Duration-Ms` non sono disponibili (gli header partono prima
+  dell'esecuzione); costo e token sono nel log, in `/stats` e nel chunk `usage`
+  se richiesto con `stream_options.include_usage`.
 - In streaming l'avanzamento è inviato come commenti SSE di una riga, senza riga
   vuota successiva, perché alcuni SDK interpretano una riga vuota dopo un
   commento come un evento vuoto.
-- I messaggi `system` vengono usati solo al primo turno di una sessione; nelle
-  sessioni riprese il ruolo stabile dell'agente sta nel suo `system_prompt`.
+- Un turno può durare minuti: il modello può lavorare in più passi prima di
+  rispondere.
 - I valori esatti del campo `apiKeySource` dell'evento `init` non sono
   documentati: il server considera "nessuna API key" solo `none`.
 
 ## FAQ
 
-**Supporta il function calling di OpenAI (`tools`, `tool_calls`)?** Sì, con lo
-stesso formato e lo stesso ciclo richiesta/risultato dell'API OpenAI (vedi
-"Function calling"). In più l'agente può usare i propri tool sul server
-(file, comandi, ricerca, server MCP in `mcp_config`) secondo i permessi
-configurati: quelli restano interni e il client ne vede solo l'effetto.
-
-**Funziona esattamente come l'API OpenAI?** Per chat, streaming e function
-calling gli SDK funzionano senza modifiche (stessi formati di richiesta,
-risposta, chunk, errori e `usage`). Non ci sono `temperature`, `n`,
-`logprobs`, output strutturato, immagini o audio, e un turno può durare minuti
-perché l'agente lavora in più passi.
+**Supporta i tool?** Sì, di due tipi: le funzioni del client con il function
+calling OpenAI, e i tool dell'agente sul server (file, comandi, ricerca, server
+MCP) per gli agenti configurati. Vedi [Due modi di usarlo](#due-modi-di-usarlo).
 
 **Devo modificare il mio client OpenAI?** No: cambiare `base_url`
 (`http://127.0.0.1:8787/v1`), `api_key` (la `AGENT_BRIDGE_API_KEY`, o un valore
-qualsiasi se non impostata) e `model` (nome dell'agente).
+qualsiasi se non impostata) e `model`.
 
-**Il contesto viene duplicato se invio tutta la cronologia?** No. Dal secondo
-turno la sessione viene ripresa e alla CLI arrivano solo i messaggi utente
-successivi all'ultima risposta dell'assistente.
+**Devo creare un file di configurazione per ogni agente?** No, se gli agenti
+sono definiti nel client: istruzioni in `system`, tool in `tools`, modello
+`claude-code/*`. Il file serve solo per gli agenti che usano i tool del server.
+
+**Il contesto viene duplicato se invio tutta la cronologia?** Senza
+`X-Session-Id` ogni richiesta riparte dalla cronologia completa, come
+un'API senza stato. Con `X-Session-Id` la sessione viene ripresa e la CLI
+riceve solo i messaggi nuovi.
 
 **Cosa succede se cambio cartella di lavoro a metà conversazione?** Le sessioni
 della CLI sono legate alla directory di progetto: il server ne avvia una nuova.
