@@ -56,6 +56,8 @@ figlio; in modalità `subscription` anche `ANTHROPIC_API_KEY` e
 | `cors_origins` | `[]` | Origini ammesse, esatte, senza jolly |
 | `allow_bypass_permissions` | `false` | Consente `permission_mode: bypassPermissions` |
 | `builtin_models` | `true` | Registra `claude-code/opus`, `claude-code/sonnet`, `claude-code/haiku` |
+| `builtin_any_model` | `true` | Accetta anche `claude-code/<modello>` per qualsiasi nome di modello (`[a-zA-Z0-9][a-zA-Z0-9._[]-]`, fino a 100 caratteri), come agente solo chat |
+| `system_messages` | `prompt` | Come arrivano i messaggi `system`/`developer`: `prompt` (in testa al prompt, in `<instructions>`), `append` (aggiunti al system prompt della CLI), `replace` (diventano il system prompt al posto di quello della CLI). Sovrascrivibile per richiesta con `X-Agent-Bridge-System-Mode` |
 | `defaults.timeout_seconds` | `1800` | Timeout di default dei turni |
 | `defaults.max_turns` | `0` | Turni massimi di default (0 = illimitato) |
 | `sessions` | | Vedi sotto |
@@ -153,6 +155,7 @@ dai client.
 | Campo | Default | Significato |
 | --- | --- | --- |
 | `enabled` | `true` | Con `false` i campi `tools`/`functions` vengono ignorati |
+| `mode` | `stateful` | `stateful`: il processo attende i risultati e riprende; `stateless`: il processo si chiude dopo aver restituito le chiamate e la richiesta successiva riparte dalla cronologia. Sovrascrivibile per richiesta con `X-Agent-Bridge-Tool-Mode` |
 | `wait_timeout_seconds` | `600` | Attesa massima dei risultati; poi il processo viene fermato e una richiesta successiva riparte dalla cronologia |
 | `batch_window_ms` | `300` | Tempo per raccogliere chiamate parallele da restituire insieme |
 
@@ -167,6 +170,21 @@ Validazione (400 `invalid_request_error`, come l'API OpenAI): tool di tipo
 diverso da `function`, nomi fuori da `[a-zA-Z0-9_-]{1,64}` o duplicati,
 `parameters` non oggetto, `tool_choice` senza `tools` o che nomina una funzione
 inesistente.
+
+## Header per richiesta
+
+| Header | Valori | Effetto |
+| --- | --- | --- |
+| `X-Session-Id` | 1-128 caratteri `[a-zA-Z0-9._:-]` | Chiave di sessione |
+| `X-Session-Reset` | `true`, `false` | Ricomincia la sessione |
+| `X-Agent-Bridge-Tool-Mode` | `stateful`, `stateless` | Modalità delle funzioni del client |
+| `X-Agent-Bridge-System-Mode` | `prompt`, `append`, `replace` | Destinazione dei messaggi `system` |
+| `X-Agent-Cwd`, `X-Agent-Allowed-Tools`, `X-Agent-System-Prompt` | vedi `overrides` | Override, solo se abilitati |
+
+Con `system_messages` `append` o `replace`, il system prompt configurato
+nell'agente resta sempre in testa e i messaggi della richiesta vengono
+aggiunti dopo. I messaggi `system` sono applicati a ogni turno, anche nelle
+sessioni riprese.
 
 ## Errori HTTP
 

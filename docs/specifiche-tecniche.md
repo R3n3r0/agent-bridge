@@ -1,6 +1,6 @@
 # agent-bridge — Specifiche tecniche
 
-Oct 15, 2026 · @Someone — **rev. 1.1**: function calling OpenAI (sezione 13) e allineamento all'implementazione (sezione 14)
+Oct 15, 2026 · @Someone — **rev. 1.2**: function calling OpenAI (sezione 13), uso da orchestratori esterni (sezione 13.8), allineamento all'implementazione (sezione 14)
 
 ## 1. Panoramica e obiettivi
 
@@ -99,7 +99,7 @@ Flag di `serve`: `-config`, `-listen`, `-allow-remote`, `-max-concurrent`, `-cla
 
 ### 4.3 File di configurazione
 
-Chiavi di primo livello: `listen`, `allow_remote` (bool, default false), `claude_binary` (default `claude`), `max_concurrent` (default 2), `max_queue` (default 32), `queue_timeout_seconds` (default 300), `shutdown_grace_seconds` (default 30), `stream_progress` (`comments`, `content` o `none`; default `comments`), `usage_log` (percorso JSONL, opzionale), `metrics` (bool, default false), `cors_origins` (lista, default vuota), `allow_bypass_permissions` (bool, default false), `builtin_models` (bool, default true), `client_tools` (sezione 13.7), `defaults` (`timeout_seconds` default 1800, `max_turns` default 0 = illimitato), `sessions` (sezione 6), `overrides` (sezione 8), `agents`.
+Chiavi di primo livello: `listen`, `allow_remote` (bool, default false), `claude_binary` (default `claude`), `max_concurrent` (default 2), `max_queue` (default 32), `queue_timeout_seconds` (default 300), `shutdown_grace_seconds` (default 30), `stream_progress` (`comments`, `content` o `none`; default `comments`), `usage_log` (percorso JSONL, opzionale), `metrics` (bool, default false), `cors_origins` (lista, default vuota), `allow_bypass_permissions` (bool, default false), `builtin_models` (bool, default true), `builtin_any_model` (bool, default true, sezione 13.8), `system_messages` (`prompt`, `append` o `replace`; default `prompt`, sezione 13.8), `client_tools` (sezione 13.7), `defaults` (`timeout_seconds` default 1800, `max_turns` default 0 = illimitato), `sessions` (sezione 6), `overrides` (sezione 8), `agents`.
 
 Campi di ogni agente in `agents` (la chiave è il nome esposto come `model`; caratteri ammessi `[a-zA-Z0-9._/-]`, massimo 64):
 
@@ -149,6 +149,8 @@ Header opzionali in ingresso:
 | `X-Session-Id` | Chiave di sessione scelta dal client (sezione 6), massimo 128 caratteri `[a-zA-Z0-9._:-]` |
 | `X-Session-Reset: true` | Ignora la sessione esistente e ne inizia una nuova con la stessa chiave |
 | `X-Agent-Cwd`, `X-Agent-Allowed-Tools`, `X-Agent-System-Prompt` | Override per richiesta, accettati solo se abilitati (sezione 8.3) |
+| `X-Agent-Bridge-Tool-Mode: stateful\|stateless` | Modalità delle funzioni del client per questa richiesta (sezione 13.8) |
+| `X-Agent-Bridge-System-Mode: prompt\|append\|replace` | Destinazione dei messaggi `system`/`developer` per questa richiesta (sezione 13.8) |
 
 ### 5.2 Risposta non-stream
 
@@ -242,7 +244,7 @@ Il prompt è passato a `claude` tramite stdin, mai come argomento.
 </current_request>
 ```
 
-Le sezioni vuote vengono omesse. I messaggi `tool` senza `tool_call_id` né nome sono resi come `<tool>…</tool>`; le chiamate del formato deprecato `function_call` come `<tool_call name="…">`.
+Le sezioni vuote vengono omesse. Con `system_messages` `append` o `replace` (sezione 13.8) i messaggi `system`/`developer` non entrano nel prompt e la sezione `<instructions>` non c'è. I messaggi `tool` senza `tool_call_id` né nome sono resi come `<tool>…</tool>`; le chiamate del formato deprecato `function_call` come `<tool_call name="…">`.
 
 **Sessione ripresa.** Il prompt contiene solo i messaggi `user` e `tool` successivi all'ultimo messaggio `assistant` della richiesta, uniti da una riga vuota (i `tool` resi con il tag `<tool tool_call_id=… name=…>`). Non si applica quando la richiesta riprende un turno in attesa di funzioni (sezione 13.4): lì i risultati vanno direttamente al processo, senza nuovo prompt. I messaggi `system` vengono ignorati (il ruolo stabile dell'agente sta nel suo `system_prompt`); se differiscono da quelli del primo turno il server registra un messaggio di debug.
 
@@ -549,6 +551,17 @@ Stream: sequenza della sezione 5.3, con un chunk `delta.tool_calls` per chiamata
 | `enabled` | `true` | Con `false` i campi `tools`/`functions` vengono accettati e ignorati |
 | `wait_timeout_seconds` | `600` | Attesa massima dei risultati |
 | `batch_window_ms` | `300` | Finestra di raccolta delle chiamate parallele |
+| `mode` | `stateful` | `stateful` (sezioni 13.4–13.5) o `stateless` (sezione 13.8) |
+
+### 13.8 Uso da orchestratori esterni
+
+Quando agenti, grafo e ciclo di vita sono gestiti da una piattaforma esterna (per esempio un sistema ReAct con un proprio grafo), il bridge deve comportarsi come un modello senza stato. Tre funzionalità lo permettono senza file di configurazione:
+
+1. **Funzioni in modalità senza stato** (`client_tools.mode: "stateless"` o header `X-Agent-Bridge-Tool-Mode: stateless`). Restituite le `tool_calls`, il processo viene chiuso. La richiesta successiva avvia un processo nuovo con la cronologia inviata dal client (sezione 6.4), che resta l'unica fonte di verità: ramificazioni, retry, modifiche della cronologia e checkpoint del grafo sono rispettati. Il turno è registrato con esito `tool_calls` e i token dell'ultimo messaggio. La sessione eventualmente associata viene cancellata, perché termina con chiamate senza risultato e non va ripresa. Le chiamate parallele restano supportate. Costo: un processo per passo, con la latenza di avvio e meno riuso della cache.
+2. **Messaggi `system` come system prompt** (`system_messages` o header `X-Agent-Bridge-System-Mode`). Con `replace` i messaggi `system`/`developer` della richiesta diventano il system prompt (`--system-prompt`) al posto di quello della CLI; con `append` vi si aggiungono (`--append-system-prompt`). Il system prompt configurato nell'agente, se presente, resta in testa. I messaggi sono applicati a ogni turno, anche nelle sessioni riprese, e non compaiono nel prompt.
+3. **Qualsiasi modello** (`builtin_any_model`, default `true`). Oltre ai tre alias, un nome `claude-code/<modello>` con `<modello>` di 1-100 caratteri `[a-zA-Z0-9._[]-]` (il primo alfanumerico) crea al volo un agente solo chat che passa `<modello>` a `--model`. Gli agenti configurati hanno la precedenza. `GET /v1/models` elenca solo agenti e alias, `GET /v1/models/{id}` risponde anche per questi nomi.
+
+Configurazione consigliata per questo scenario: `{"client_tools": {"mode": "stateless"}, "system_messages": "replace"}` e nessun `X-Session-Id`.
 
 ## 14. Registro delle modifiche rispetto alla rev. 1.0
 
@@ -562,4 +575,6 @@ Stream: sequenza della sezione 5.3, con un chunk `delta.tool_calls` per chiamata
 | Prompt | Messaggi `tool` nella cronologia | Messaggi `tool` dopo l'ultimo `assistant` nella richiesta corrente; chiamate dell'assistente rese con `<tool_call>` (6.4) | Ordine corretto di chiamate e risultati |
 | Testo semplice | Un solo messaggio `user` e nessun `system` | Un solo messaggio in totale, di ruolo `user` | Evitare di perdere messaggi `assistant` o `tool` precedenti |
 | Versione minima CLI | Da definire | `2.1.128` (`runner.MinCLIVersion`) | Limite di 10 MB su stdin usato da 6.4 |
+| Orchestratori esterni | Non previsto | Modalità senza stato, `system_messages`, modelli qualsiasi (13.8) | Integrazione con piattaforme che gestiscono grafo e ciclo di vita |
+| Formato deprecato `functions` | — | La sessione interrotta sulle chiamate viene cancellata, non ripresa | Evitare di riprendere sessioni con chiamate senza risultato |
 | Registro sessioni | ID e metadati | Anche un'impronta (hash) dei messaggi `system` del primo turno | Debug del cambio di `system` (6.4), senza conservarne il testo |

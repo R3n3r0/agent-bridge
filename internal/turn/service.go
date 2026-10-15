@@ -101,6 +101,13 @@ type Request struct {
 	// stopped as soon as the call is returned; the follow-up request then
 	// starts from the full history.
 	LegacyFunctions bool
+	// StatelessTools stops the process as soon as function calls are
+	// returned: the client owns the conversation state and the next
+	// request starts a new process from the history it sends.
+	StatelessTools bool
+	// SystemMode is how system and developer messages reach the model:
+	// config.SystemAsPrompt (default), SystemAppend or SystemReplace.
+	SystemMode string
 
 	unlock func()    // session lock taken by Admit
 	attach *liveTurn // waiting turn this request resumes
@@ -309,7 +316,8 @@ func (s *service) start(ctx context.Context, req *Request, progress ProgressFunc
 	if resumed && hash != "" && entry.InstructionsHash != "" && hash != entry.InstructionsHash {
 		lt.log.Debug("system messages differ from the first turn and are ignored on resumed sessions")
 	}
-	text, err := prompt.Build(req.Messages, resumed)
+	applySystemMode(req)
+	text, err := prompt.BuildWith(req.Messages, prompt.Options{Resumed: resumed, OmitInstructions: req.omitInstructions()})
 	if err != nil {
 		return nil, lt.finish(stats.OutcomeError, newError(KindInvalid, "%v", err))
 	}
@@ -379,6 +387,9 @@ type liveTurn struct {
 	parkedIDs  []string
 	finished   bool
 	reason     *Error // why the turn was stopped from inside
+	// stoppedForCalls is set when the process is stopped right after
+	// returning function calls (stateless or deprecated functions mode).
+	stoppedForCalls bool
 }
 
 var _ tools.Handler = (*liveTurn)(nil)
@@ -537,6 +548,8 @@ func (lt *liveTurn) flush() {
 	}
 	n := len(lt.batch)
 	if !lt.req.ParallelToolCalls || lt.req.LegacyFunctions {
+		// With parallel calls disabled, later calls of the batch wait for
+		// the next round; in stateless mode the model makes them again.
 		n = 1
 	}
 	lt.waiting = lt.batch[:n:n]
@@ -556,9 +569,10 @@ func (lt *liveTurn) flush() {
 	lt.parkedIDs = ids
 	lt.svc.park(ids, lt)
 	timeout := lt.svc.ToolWaitTimeout
-	if lt.req.LegacyFunctions {
+	if lt.req.LegacyFunctions || lt.req.StatelessTools {
+		lt.stoppedForCalls = true
 		lt.stops <- stopPoint{res: res}
-		go lt.abort(newError(KindCanceled, "deprecated function call returned to the caller"))
+		go lt.abort(newError(KindCanceled, "function calls returned to the caller"))
 		return
 	}
 	lt.parkTimer = time.AfterFunc(timeout, func() {
@@ -606,7 +620,7 @@ func (lt *liveTurn) run(release func(), entry session.Entry, resumed bool, text,
 		lt.storeErr(s.Store.Delete(key))
 		resumed = false
 		entry = session.Entry{Agent: req.Agent.Name, Cwd: req.Cwd, CreatedAt: time.Now().UTC(), InstructionsHash: hash}
-		if newText, err := prompt.Build(req.Messages, false); err == nil {
+		if newText, err := prompt.BuildWith(req.Messages, prompt.Options{OmitInstructions: req.omitInstructions()}); err == nil {
 			out, runErr = lt.exec(newText, "")
 		}
 	}
@@ -614,7 +628,21 @@ func (lt *liveTurn) run(release func(), entry session.Entry, resumed bool, text,
 	lt.rec.Resumed = resumed
 	lt.rec.Model = out.Model
 	lt.rec.CLISessionID = out.SessionID
-	if out.SessionID != "" {
+	lt.mu.Lock()
+	stopped, lastUsage := lt.stoppedForCalls, lt.lastUsage
+	lt.mu.Unlock()
+	switch {
+	case stopped:
+		// The CLI session ends with calls that never got their results:
+		// it must not be resumed. The next request starts from history.
+		lt.storeErr(s.Store.Delete(key))
+		if u := lastUsage; u != nil && out.Result == nil {
+			lt.rec.InputTokens = u.InputTokens
+			lt.rec.OutputTokens = u.OutputTokens
+			lt.rec.CacheReadTokens = u.CacheReadTokens
+			lt.rec.CacheCreationTokens = u.CacheCreationTokens
+		}
+	case out.SessionID != "":
 		entry.CLISessionID = out.SessionID
 		entry.LastUsedAt = time.Now().UTC()
 		entry.Turns++
@@ -665,6 +693,37 @@ func (lt *liveTurn) run(release func(), entry session.Entry, resumed bool, text,
 	lt.mu.Unlock()
 }
 
+func (lt *liveTurn) stoppedAfterCalls() bool {
+	lt.mu.Lock()
+	defer lt.mu.Unlock()
+	return lt.stoppedForCalls
+}
+
+func (r *Request) omitInstructions() bool {
+	return r.SystemMode == config.SystemAppend || r.SystemMode == config.SystemReplace
+}
+
+// applySystemMode moves the request's system and developer messages into
+// the CLI system prompt when SystemMode asks for it. They are combined
+// with the agent's own system prompt, which always comes first.
+func applySystemMode(req *Request) {
+	if !req.omitInstructions() {
+		return
+	}
+	instructions := prompt.Instructions(req.Messages)
+	if req.SystemMode == config.SystemReplace {
+		req.Spec.SystemPromptMode = config.PromptModeReplace
+	}
+	if instructions == "" {
+		return
+	}
+	if req.Spec.SystemPrompt == "" {
+		req.Spec.SystemPrompt = instructions
+	} else {
+		req.Spec.SystemPrompt += "\n\n" + instructions
+	}
+}
+
 // classify maps the process outcome to a Result or an Error.
 func (lt *liveTurn) classify(out *runner.Outcome, runErr error) (*Result, *Error) {
 	switch {
@@ -697,6 +756,9 @@ func (lt *liveTurn) classify(out *runner.Outcome, runErr error) (*Result, *Error
 	case errors.Is(runErr, runner.ErrTimeout):
 		return nil, lt.finish(stats.OutcomeTimeout,
 			newError(KindTimeout, "turn exceeded the agent timeout of %s", lt.req.Agent.Timeout))
+	case errors.Is(runErr, runner.ErrCanceled) && lt.stoppedAfterCalls():
+		lt.finish(stats.OutcomeToolCalls, nil)
+		return nil, newError(KindCanceled, "process stopped after returning function calls")
 	case errors.Is(runErr, runner.ErrCanceled):
 		e := lt.canceled("while running")
 		outcome := stats.OutcomeCanceled

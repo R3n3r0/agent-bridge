@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -384,4 +385,91 @@ func waitUntil(t *testing.T, cond func() bool) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
+}
+
+func TestStatelessToolCalls(t *testing.T) {
+	f := newToolFixture(t, time.Minute, func(n int, req runner.Request) (*runner.Outcome, error) {
+		if n == 1 {
+			req.OnEvent(runner.Event{Kind: runner.KindUsage, Usage: &runner.Usage{InputTokens: 7, OutputTokens: 3}})
+			if _, err := callTool(context.Background(), t, req, "get_weather", `{"city":"Rome"}`); err != nil {
+				return &runner.Outcome{SessionID: "s1"}, runner.ErrCanceled
+			}
+			return success("s1", "must not happen"), nil
+		}
+		return success("s2", "from history: "+req.Stdin), nil
+	})
+	req := toolRequest(user("weather?"))
+	req.StatelessTools = true
+	req.SessionKey = "conv"
+	res, err := f.svc.Execute(context.Background(), req, nil)
+	if err != nil || res.FinishReason != FinishToolCalls || len(res.ToolCalls) != 1 {
+		t.Fatalf("first step %+v %v", res, err)
+	}
+	waitUntil(t, func() bool { return f.lim.Active() == 0 })
+	if r := f.rec.last(); r.Outcome != "tool_calls" || r.InputTokens != 7 || r.OutputTokens != 3 {
+		t.Fatalf("record %+v", r)
+	}
+	if _, ok := f.store.Get("coder|conv"); ok {
+		t.Fatal("a session stopped on function calls must not be resumable")
+	}
+	if f.svc.(*service).waitingTurn(toolRequest(withResults(res.ToolCalls, "x")...)) != nil {
+		t.Fatal("stateless turn must not wait")
+	}
+
+	next := toolRequest(withResults(res.ToolCalls, "sunny")...)
+	next.StatelessTools = true
+	next.SessionKey = "conv"
+	res, err = f.svc.Execute(context.Background(), next, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.exec.calls) != 2 || strings.Contains(strings.Join(f.exec.calls[1].Args, " "), "--resume") ||
+		!strings.Contains(res.Content, `name="get_weather">sunny</tool>`) {
+		t.Fatalf("second step %+v (args %q)", res, f.exec.calls[1].Args)
+	}
+}
+
+func TestSystemModes(t *testing.T) {
+	f := newFixture(t, config.OnBusyWait, func(int, runner.Request) (*runner.Outcome, error) { return success("s", "ok"), nil })
+	sys := prompt.Message{Role: prompt.RoleSystem, Text: "You are the planner."}
+	cases := []struct {
+		mode, agentPrompt, flag, value string
+	}{
+		{config.SystemReplace, "", "--system-prompt", "You are the planner."},
+		{config.SystemAppend, "", "--append-system-prompt", "You are the planner."},
+		{config.SystemReplace, "base rules", "--system-prompt", "base rules\n\nYou are the planner."},
+	}
+	for i, c := range cases {
+		req := request(sys, user("go"))
+		req.SessionKey = fmt.Sprintf("k%d", i)
+		req.SystemMode = c.mode
+		req.Spec.SystemPrompt = c.agentPrompt
+		if _, err := f.svc.Execute(context.Background(), req, nil); err != nil {
+			t.Fatal(err)
+		}
+		call := f.exec.calls[len(f.exec.calls)-1]
+		if v := argAfter(call.Args, c.flag); v != c.value {
+			t.Fatalf("case %d: %s = %q (args %q)", i, c.flag, v, call.Args)
+		}
+		if call.Stdin != "go" {
+			t.Fatalf("case %d: system text left in the prompt: %q", i, call.Stdin)
+		}
+	}
+	// Default: system messages stay in the prompt.
+	req := request(sys, user("go"))
+	req.SessionKey = "default"
+	_, _ = f.svc.Execute(context.Background(), req, nil)
+	call := f.exec.calls[len(f.exec.calls)-1]
+	if !strings.Contains(call.Stdin, "<instructions>\nYou are the planner.") || argAfter(call.Args, "--system-prompt") != "" {
+		t.Fatalf("default mode: %q %q", call.Stdin, call.Args)
+	}
+}
+
+func argAfter(args []string, name string) string {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == name {
+			return args[i+1]
+		}
+	}
+	return ""
 }

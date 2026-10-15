@@ -15,5 +15,8 @@ Prima implementazione completa delle specifiche v1.0:
   (JSON e streaming), messaggi `tool` in ingresso, formato deprecato `functions`/`function_call`. Le funzioni
   sono offerte alla CLI tramite un server MCP interno (`agent-bridge mcp-tools`) e il processo resta in attesa
   dei risultati del client tra una richiesta e l'altra.
+- Uso da orchestratori esterni: funzioni in modalità senza stato (`client_tools.mode`, header
+  `X-Agent-Bridge-Tool-Mode`), messaggi `system` come system prompt (`system_messages`, header
+  `X-Agent-Bridge-System-Mode`), qualsiasi modello come `claude-code/<modello>` (`builtin_any_model`).
 - Struttura a livelli con interfacce (`turn.Service`, `session.Store`/`Locker`, `runner.Executor`/`Limiter`,
   `stats.Recorder`/`Reporter`/`UsageSink`, `tools.Broker`).

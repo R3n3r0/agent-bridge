@@ -233,3 +233,20 @@ func TestLegacyFunctionCall(t *testing.T) {
 		t.Fatalf("got %s", got)
 	}
 }
+
+func TestBuildOmitInstructions(t *testing.T) {
+	msgs := mustParse(t, raw("system", "agent role"), raw("developer", "more"), raw("user", "q"))
+	got, err := BuildWith(msgs, Options{OmitInstructions: true})
+	if err != nil || got != "q" {
+		t.Fatalf("got %q %v", got, err)
+	}
+	msgs = mustParse(t, raw("system", "agent role"), raw("user", "q1"), raw("assistant", "a1"), raw("user", "q2"))
+	got, _ = BuildWith(msgs, Options{OmitInstructions: true})
+	if strings.Contains(got, "agent role") || strings.Contains(got, "<instructions>") || !strings.Contains(got, "<current_request>\nq2") {
+		t.Fatalf("got %q", got)
+	}
+	got, _ = BuildWith(msgs, Options{OmitInstructions: true, Resumed: true})
+	if got != "q2" {
+		t.Fatalf("resumed %q", got)
+	}
+}

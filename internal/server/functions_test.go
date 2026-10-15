@@ -240,3 +240,79 @@ func TestFunctionValidation(t *testing.T) {
 		resp.Body.Close()
 	}
 }
+
+func TestStatelessToolModeHeader(t *testing.T) {
+	h := newHarness(t, harnessOpts{env: []string{"FAKE_SCENARIO=tools"}})
+	hdr := map[string]string{headerToolMode: "stateless"}
+	c := decode[chatCompletion](t, h.post(toolsBody("claude-code/sonnet", false, msg("user", "What's the weather in Rome?")), hdr))
+	if c.Choices[0].FinishReason != "tool_calls" {
+		t.Fatalf("first step %+v", c.Choices[0])
+	}
+	waitFor(t, func() bool { return h.limiter.Active() == 0 })
+	c2 := decode[chatCompletion](t, h.post(followUp("claude-code/sonnet", false, c, "sunny"), hdr))
+	// The second step is a new process; the fake CLI calls the function
+	// again since it always does, so another tool_calls step is fine: what
+	// matters is that the first process did not survive and the history
+	// reached the new one.
+	starts := h.starts()
+	if len(starts) != 2 || !strings.Contains(starts[1].Stdin, `name="get_weather">sunny</tool>`) {
+		t.Fatalf("second step %+v, prompt %q", c2.Choices[0], starts[len(starts)-1].Stdin)
+	}
+	if !strings.Contains(h.logs.String(), "outcome=tool_calls") {
+		t.Fatal("stateless step not recorded as tool_calls")
+	}
+	expectError(t, h.post(toolsBody("coder", false, msg("user", "x")), map[string]string{headerToolMode: "sometimes"}), 400, errInvalidRequest)
+}
+
+func TestStatelessToolModeConfig(t *testing.T) {
+	h := newHarness(t, harnessOpts{env: []string{"FAKE_SCENARIO=tools"}, configJSON: `"client_tools": {"mode": "stateless"}`})
+	resp := h.post(toolsBody("coder", false, msg("user", "x")), nil)
+	resp.Body.Close()
+	waitFor(t, func() bool { return h.limiter.Active() == 0 })
+	if !strings.Contains(h.logs.String(), "outcome=tool_calls") {
+		t.Fatal("config mode not applied")
+	}
+}
+
+func TestSystemModeHeaderAndAnyModel(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	body := map[string]any{"model": "claude-code/model-x-2[1m]", "messages": []map[string]any{
+		msg("system", "You are the planner agent."), msg("user", "plan it"),
+	}}
+	resp := h.post(body, map[string]string{headerSystemMode: "replace"})
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status %d %s", resp.StatusCode, b)
+	}
+	c := decode[chatCompletion](t, resp)
+	if c.Model != "claude-code/model-x-2[1m]" {
+		t.Fatalf("model %q", c.Model)
+	}
+	r := h.starts()[0]
+	if v, _ := argValue(r.Args, "--system-prompt"); v != "You are the planner agent." {
+		t.Fatalf("args %q", r.Args)
+	}
+	if v, _ := argValue(r.Args, "--model"); v != "model-x-2[1m]" {
+		t.Fatalf("model arg %q", r.Args)
+	}
+	if v, ok := argValue(r.Args, "--tools"); !ok || v != "" {
+		t.Fatal("any-model agents must be chat-only")
+	}
+	if r.Stdin != "plan it" {
+		t.Fatalf("stdin %q", r.Stdin)
+	}
+	m := decode[modelObject](t, h.get("/v1/models/claude-code/model-x-2[1m]", nil))
+	if m.ID != "claude-code/model-x-2[1m]" {
+		t.Fatalf("model detail %+v", m)
+	}
+	expectError(t, h.post(userMsg("claude-code/bad name", "x"), nil), 404, errModelNotFound)
+	expectError(t, h.post(body, map[string]string{headerSystemMode: "inline"}), 400, errInvalidRequest)
+
+	h2 := newHarness(t, harnessOpts{configJSON: `"builtin_any_model": false, "system_messages": "append"`})
+	expectError(t, h2.post(userMsg("claude-code/model-x", "x"), nil), 404, errModelNotFound)
+	resp = h2.post(map[string]any{"model": "claude-code/haiku", "messages": body["messages"]}, nil)
+	resp.Body.Close()
+	if v, _ := argValue(h2.starts()[0].Args, "--append-system-prompt"); v != "You are the planner agent." {
+		t.Fatalf("config system_messages not applied: %q", h2.starts()[0].Args)
+	}
+}

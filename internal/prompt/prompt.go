@@ -217,10 +217,33 @@ func Instructions(msgs []Message) string {
 	return strings.Join(out, "\n\n")
 }
 
-// Build returns the prompt for a turn. With resumed set, only the new user
-// and tool messages are sent, since the previous context is already in the
-// session.
+// Options control Build.
+type Options struct {
+	// Resumed sends only the new user and tool messages, since the previous
+	// context is already in the session.
+	Resumed bool
+	// OmitInstructions leaves system and developer messages out of the
+	// prompt, for when they are passed to the CLI as its system prompt.
+	OmitInstructions bool
+}
+
+// Build returns the prompt for a turn; see Options.Resumed.
 func Build(msgs []Message, resumed bool) (string, error) {
+	return BuildWith(msgs, Options{Resumed: resumed})
+}
+
+// BuildWith returns the prompt for a turn.
+func BuildWith(msgs []Message, o Options) (string, error) {
+	if o.OmitInstructions {
+		kept := make([]Message, 0, len(msgs))
+		for _, m := range msgs {
+			if m.Role != RoleSystem && m.Role != RoleDeveloper {
+				kept = append(kept, m)
+			}
+		}
+		msgs = kept
+	}
+	resumed := o.Resumed
 	current := Current(msgs)
 	if len(current) == 0 {
 		return "", ErrNoCurrentRequest

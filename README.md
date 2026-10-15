@@ -133,6 +133,37 @@ Differenze da conoscere:
 - Con il formato deprecato `functions` i risultati non hanno id: ogni chiamata
   chiude il processo e la richiesta successiva riparte dalla cronologia.
 
+## Uso con un orchestratore proprio (grafo ReAct)
+
+Se agenti, grafo e ciclo di vita sono definiti nella tua piattaforma, il bridge
+può comportarsi come un modello OpenAI puro, senza file di configurazione:
+
+| Nella piattaforma | Nella richiesta |
+| --- | --- |
+| Istruzioni dell'agente | messaggio `system` |
+| Tool dell'agente | `tools` |
+| Modello | `claude-code/opus`, `claude-code/sonnet`, `claude-code/haiku` o `claude-code/<nome modello>` |
+
+Due opzioni rendono il bridge senza stato e fanno dell'agente della piattaforma
+l'unico agente:
+
+| Header (o chiave di configurazione) | Effetto |
+| --- | --- |
+| `X-Agent-Bridge-Tool-Mode: stateless` (`client_tools.mode`) | Dopo aver restituito `tool_calls` il processo viene chiuso: ogni richiesta è un passo del grafo e la cronologia inviata dal client è l'unica fonte di verità. Ramificazioni, retry e checkpoint restano nella piattaforma |
+| `X-Agent-Bridge-System-Mode: replace` (`system_messages`) | I messaggi `system` diventano il system prompt effettivo al posto di quello della CLI (con `append` vi si aggiungono) |
+
+Configurazione minima consigliata in questo scenario (opzionale: gli stessi
+valori si possono mandare come header):
+
+```json
+{ "client_tools": { "mode": "stateless" }, "system_messages": "replace" }
+```
+
+In modalità senza stato ogni passo avvia un processo nuovo con la cronologia
+completa: più latenza per passo, in cambio di nessuno stato nascosto. Non
+inviare `X-Session-Id` in questo scenario: la cronologia la gestisce la
+piattaforma.
+
 ## Sviluppo con abbonamento, produzione con API key
 
 La modalità è scelta solo da configurazione, con la variabile obbligatoria
@@ -284,7 +315,7 @@ o la seconda riceve 409 (`on_busy: reject`).
 
 Struttura a livelli con interfacce e implementazioni sostituibili:
 [docs/architecture.md](docs/architecture.md). Specifica tecnica completa,
-aggiornata alla rev. 1.1: [docs/specifiche-tecniche.md](docs/specifiche-tecniche.md).
+aggiornata alla rev. 1.2: [docs/specifiche-tecniche.md](docs/specifiche-tecniche.md).
 
 ```sh
 go test -race ./...          # usa un finto binario della CLI, nessuna credenziale

@@ -27,6 +27,8 @@ const (
 	headerAgentCwd           = "X-Agent-Cwd"
 	headerAgentTools         = "X-Agent-Allowed-Tools"
 	headerAgentPrompt        = "X-Agent-System-Prompt"
+	headerToolMode           = "X-Agent-Bridge-Tool-Mode"
+	headerSystemMode         = "X-Agent-Bridge-System-Mode"
 	headerTurns              = "X-Agent-Bridge-Turns"
 	headerCost               = "X-Agent-Bridge-Cost-USD"
 	headerDuration           = "X-Agent-Bridge-Duration-Ms"
@@ -151,7 +153,7 @@ func (s *Server) cors(next http.Handler) http.Handler {
 			h.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 			h.Set("Access-Control-Allow-Headers", strings.Join([]string{
 				"Authorization", "Content-Type", headerRequestID, headerSessionID, headerSessionReset,
-				headerAgentCwd, headerAgentTools, headerAgentPrompt,
+				headerAgentCwd, headerAgentTools, headerAgentPrompt, headerToolMode, headerSystemMode,
 			}, ", "))
 			h.Set("Access-Control-Max-Age", "600")
 			w.WriteHeader(http.StatusNoContent)
@@ -201,7 +203,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleModel(w http.ResponseWriter, r *http.Request) {
-	a, ok := s.cfg.Agents[r.PathValue("id")]
+	a, ok := s.cfg.Agent(r.PathValue("id"))
 	if !ok {
 		writeError(w, newError(http.StatusNotFound, errModelNotFound, "model "+r.PathValue("id")+" does not exist"))
 		return

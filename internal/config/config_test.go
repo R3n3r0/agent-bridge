@@ -45,6 +45,9 @@ func TestDefaults(t *testing.T) {
 		cfg.Sessions.OnBusy != OnBusyWait || cfg.AllowRemote || cfg.Metrics || cfg.AllowBypassPermissions {
 		t.Fatalf("unexpected defaults: %+v", cfg)
 	}
+	if !cfg.BuiltinAnyModel || cfg.SystemMessages != SystemAsPrompt || cfg.ClientTools.Mode != ToolModeStateful {
+		t.Fatalf("defaults: %+v", cfg)
+	}
 	if !cfg.ClientTools.Enabled || cfg.ClientTools.WaitTimeoutSeconds != 600 || cfg.ClientTools.BatchWindowMs != 300 {
 		t.Fatalf("client_tools defaults: %+v", cfg.ClientTools)
 	}
@@ -158,6 +161,8 @@ func TestValidationErrors(t *testing.T) {
 		{"negative turns", `{"agents":{"a":{"tools_enabled":false,"max_turns":-1}}}`, "max_turns"},
 		{"negative timeout", `{"agents":{"a":{"tools_enabled":false,"timeout_seconds":-1}}}`, "timeout_seconds"},
 		{"negative queue", `{"max_queue":-1}`, "max_queue"},
+		{"system messages", `{"system_messages":"inline"}`, "system_messages"},
+		{"tool mode", `{"client_tools":{"mode":"sometimes"}}`, "client_tools.mode"},
 		{"negative tool wait", `{"client_tools":{"wait_timeout_seconds":-1}}`, "client_tools.wait_timeout_seconds"},
 		{"zero concurrency", `{"max_concurrent":0}`, "max_concurrent"},
 		{"stream progress", `{"stream_progress":"all"}`, "stream_progress"},
@@ -286,5 +291,33 @@ func TestDirWithoutFile(t *testing.T) {
 	}
 	if cfg.abs("/x") != "/x" && !filepath.IsAbs(cfg.abs("/x")) {
 		t.Fatal("abs changed an absolute path")
+	}
+}
+
+func TestAgentLookupAnyModel(t *testing.T) {
+	cfg, err := Load(flags(t), env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.SetScratchDir("/scratch")
+	a, ok := cfg.Agent("claude-code/opus")
+	if !ok || a.Model != "opus" {
+		t.Fatalf("builtin %+v", a)
+	}
+	a, ok = cfg.Agent("claude-code/claude-model-x-1[1m]")
+	if !ok || a.Model != "claude-model-x-1[1m]" || a.ToolsEnabled || !a.Builtin || a.Cwd != "/scratch" {
+		t.Fatalf("any model %+v", a)
+	}
+	for _, bad := range []string{"other/opus", "claude-code/", "claude-code/-x", "claude-code/a b", "claude-code/a/b"} {
+		if _, ok := cfg.Agent(bad); ok {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	cfg.BuiltinAnyModel = false
+	if _, ok := cfg.Agent("claude-code/model-x"); ok {
+		t.Fatal("any model disabled but accepted")
+	}
+	if _, ok := cfg.Agent("claude-code/haiku"); !ok {
+		t.Fatal("builtins must stay available")
 	}
 }

@@ -22,6 +22,9 @@ const (
 	OutcomeError    = "error"
 	OutcomeTimeout  = "timeout"
 	OutcomeCanceled = "canceled"
+	// OutcomeToolCalls is a process stopped on purpose after returning
+	// function calls (stateless mode).
+	OutcomeToolCalls = "tool_calls"
 )
 
 // Turn is the record of one completed turn. It never contains prompt or

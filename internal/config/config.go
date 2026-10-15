@@ -103,10 +103,30 @@ type SessionsSection struct {
 // ClientToolsSection is the "client_tools" object of the file: functions
 // defined by API clients (OpenAI tools) and executed by the clients.
 type ClientToolsSection struct {
-	Enabled            bool `json:"enabled"`
-	WaitTimeoutSeconds int  `json:"wait_timeout_seconds"`
-	BatchWindowMs      int  `json:"batch_window_ms"`
+	Enabled bool `json:"enabled"`
+	// Mode is ToolModeStateful (the process waits for the results) or
+	// ToolModeStateless (the process stops after returning the calls and
+	// the next request starts from the history sent by the client).
+	Mode               string `json:"mode"`
+	WaitTimeoutSeconds int    `json:"wait_timeout_seconds"`
+	BatchWindowMs      int    `json:"batch_window_ms"`
 }
+
+// Client function modes.
+const (
+	ToolModeStateful  = "stateful"
+	ToolModeStateless = "stateless"
+)
+
+// How request system and developer messages reach the model.
+const (
+	// SystemAsPrompt puts them at the top of the prompt, in <instructions>.
+	SystemAsPrompt = "prompt"
+	// SystemAppend appends them to the CLI system prompt.
+	SystemAppend = "append"
+	// SystemReplace makes them the system prompt, replacing the CLI one.
+	SystemReplace = "replace"
+)
 
 // OverridesSection is the "overrides" object of the file.
 type OverridesSection struct {
@@ -167,6 +187,8 @@ type Config struct {
 	CORSOrigins            []string             `json:"cors_origins"`
 	AllowBypassPermissions bool                 `json:"allow_bypass_permissions"`
 	BuiltinModels          bool                 `json:"builtin_models"`
+	BuiltinAnyModel        bool                 `json:"builtin_any_model"`
+	SystemMessages         string               `json:"system_messages"`
 	Defaults               DefaultsSection      `json:"defaults"`
 	Sessions               SessionsSection      `json:"sessions"`
 	Overrides              OverridesSection     `json:"overrides"`
@@ -183,6 +205,8 @@ type Config struct {
 	Path string `json:"-"`
 	// Agents holds the resolved agents, including built-in models.
 	Agents map[string]*Agent `json:"-"`
+	// ScratchDir is the working directory of chat-only agents without cwd.
+	ScratchDir string `json:"-"`
 }
 
 // Flags holds the command-line flags shared by the subcommands.
@@ -228,6 +252,8 @@ func defaults() *Config {
 		ShutdownGraceSeconds: DefaultShutdownGrace,
 		StreamProgress:       StreamComments,
 		BuiltinModels:        true,
+		BuiltinAnyModel:      true,
+		SystemMessages:       SystemAsPrompt,
 		Defaults:             DefaultsSection{TimeoutSeconds: DefaultTimeout},
 		Sessions: SessionsSection{
 			Store:      SessionStoreMemory,
@@ -237,6 +263,7 @@ func defaults() *Config {
 		},
 		ClientTools: ClientToolsSection{
 			Enabled:            true,
+			Mode:               ToolModeStateful,
 			WaitTimeoutSeconds: DefaultToolWaitTimeout,
 			BatchWindowMs:      DefaultToolBatchWindowMs,
 		},
@@ -360,6 +387,12 @@ func (c *Config) resolve() error {
 			add("%s: must not be negative, got %d", name, v)
 		}
 	}
+	if !oneOf(c.SystemMessages, SystemAsPrompt, SystemAppend, SystemReplace) {
+		add("system_messages: must be prompt, append or replace, got %q", c.SystemMessages)
+	}
+	if !oneOf(c.ClientTools.Mode, ToolModeStateful, ToolModeStateless) {
+		add("client_tools.mode: must be stateful or stateless, got %q", c.ClientTools.Mode)
+	}
 	if !oneOf(c.StreamProgress, StreamComments, StreamContent, StreamNone) {
 		add("stream_progress: must be comments, content or none, got %q", c.StreamProgress)
 	}
@@ -414,16 +447,7 @@ func (c *Config) resolve() error {
 	}
 	if c.BuiltinModels {
 		for name, model := range BuiltinModels {
-			c.Agents[name] = &Agent{
-				Name:             name,
-				Model:            model,
-				Description:      "Built-in chat-only model (" + model + ")",
-				SystemPromptMode: PromptModeAppend,
-				PermissionMode:   defaultPermissionMode,
-				MaxTurns:         c.Defaults.MaxTurns,
-				Timeout:          time.Duration(c.Defaults.TimeoutSeconds) * time.Second,
-				Builtin:          true,
-			}
+			c.Agents[name] = c.builtinAgent(name, model)
 		}
 	}
 	return errors.Join(errs...)
@@ -507,9 +531,42 @@ func (c *Config) resolveAgent(name string, f AgentFile) (*Agent, []error) {
 	return a, errs
 }
 
+// builtinAgent returns a chat-only agent running model.
+func (c *Config) builtinAgent(name, model string) *Agent {
+	return &Agent{
+		Name:             name,
+		Model:            model,
+		Description:      "Built-in chat-only model (" + model + ")",
+		SystemPromptMode: PromptModeAppend,
+		PermissionMode:   defaultPermissionMode,
+		MaxTurns:         c.Defaults.MaxTurns,
+		Cwd:              c.ScratchDir,
+		Timeout:          time.Duration(c.Defaults.TimeoutSeconds) * time.Second,
+		Builtin:          true,
+	}
+}
+
+var modelNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._\[\]-]{0,99}$`)
+
+// Agent returns the agent for a model name: a configured or built-in agent,
+// or, with builtin_any_model, a chat-only agent for any
+// name made of the built-in prefix and a model, which is passed to the CLI
+// as is.
+func (c *Config) Agent(name string) (*Agent, bool) {
+	if a, ok := c.Agents[name]; ok {
+		return a, true
+	}
+	model, ok := strings.CutPrefix(name, builtinPrefix)
+	if !ok || !c.BuiltinModels || !c.BuiltinAnyModel || !modelNameRe.MatchString(model) {
+		return nil, false
+	}
+	return c.builtinAgent(name, model), true
+}
+
 // SetScratchDir assigns dir as working directory to every agent without one
 // (built-in models and chat-only agents without cwd).
 func (c *Config) SetScratchDir(dir string) {
+	c.ScratchDir = dir
 	for _, a := range c.Agents {
 		if a.Cwd == "" {
 			a.Cwd = dir

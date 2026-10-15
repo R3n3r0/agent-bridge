@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/r3n3r0/agent-bridge/internal/config"
 	"github.com/r3n3r0/agent-bridge/internal/prompt"
 	"github.com/r3n3r0/agent-bridge/internal/session"
 	"github.com/r3n3r0/agent-bridge/internal/turn"
@@ -125,7 +126,7 @@ func (s *Server) parseChat(w http.ResponseWriter, r *http.Request) (*chatCall, *
 	if len(prompt.Current(msgs)) == 0 {
 		return nil, newError(http.StatusBadRequest, errInvalidRequest, prompt.ErrNoCurrentRequest.Error())
 	}
-	agent, ok := s.cfg.Agents[req.Model]
+	agent, ok := s.cfg.Agent(req.Model)
 	if !ok {
 		return nil, newError(http.StatusNotFound, errModelNotFound, "model "+req.Model+" does not exist")
 	}
@@ -150,6 +151,15 @@ func (s *Server) parseChat(w http.ResponseWriter, r *http.Request) (*chatCall, *
 		return nil, newError(http.StatusBadRequest, errInvalidRequest, headerSessionReset+" must be true or false")
 	}
 
+	toolMode, apiErr := headerChoice(r.Header, headerToolMode, s.cfg.ClientTools.Mode, config.ToolModeStateful, config.ToolModeStateless)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	systemMode, apiErr := headerChoice(r.Header, headerSystemMode, s.cfg.SystemMessages, config.SystemAsPrompt, config.SystemAppend, config.SystemReplace)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+
 	call := &chatCall{
 		model:  req.Model,
 		stream: req.Stream,
@@ -166,12 +176,29 @@ func (s *Server) parseChat(w http.ResponseWriter, r *http.Request) (*chatCall, *
 			ToolChoice:        fns.choice,
 			ParallelToolCalls: fns.parallel,
 			LegacyFunctions:   fns.legacy,
+			StatelessTools:    toolMode == config.ToolModeStateless,
+			SystemMode:        systemMode,
 		},
 	}
 	if req.StreamOptions != nil {
 		call.includeUsage = req.StreamOptions.IncludeUsage
 	}
 	return call, nil
+}
+
+// headerChoice returns the value of header h, one of allowed, or def when
+// the header is absent.
+func headerChoice(hdr http.Header, h, def string, allowed ...string) (string, *apiError) {
+	v := strings.ToLower(strings.TrimSpace(hdr.Get(h)))
+	if v == "" {
+		return def, nil
+	}
+	for _, a := range allowed {
+		if v == a {
+			return v, nil
+		}
+	}
+	return "", newError(http.StatusBadRequest, errInvalidRequest, h+" must be one of "+strings.Join(allowed, ", "))
 }
 
 // sessionKey picks the client session key: header, then user field, then a
