@@ -16,7 +16,7 @@ func TestDoctorCodex(t *testing.T) {
 	for k, v := range map[string]string{
 		"AGENT_BRIDGE_AUTH_MODE": "subscription", "AGENT_BRIDGE_CONFIG": "", "AGENT_BRIDGE_LISTEN": "",
 		"CODEX_API_KEY": "", "CODEX_ACCESS_TOKEN": "", "FAKE_SCENARIO": "success", "FAKE_RECORD": "",
-		"FAKE_VERSION": "codex-cli 0.170.0",
+		"FAKE_VERSION": "codex-cli 0.170.0", "FAKE_LOGGED_IN": "1",
 	} {
 		t.Setenv(k, v)
 	}

@@ -58,6 +58,9 @@ func main() {
 		fmt.Println(os.Getenv("FAKE_VERSION"))
 		return
 	}
+	if len(args) > 0 && runLogin(args) {
+		return
+	}
 	if len(args) > 0 && args[0] == "acp" {
 		runACP(args)
 		return

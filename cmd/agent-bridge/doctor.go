@@ -154,7 +154,7 @@ func checkCodexLogin(d *doctorReport, bin string) {
 		status = lines[len(lines)-1]
 	}
 	if err != nil {
-		d.fail("codex login status: %s: run \"codex login\" once interactively", redact.Truncate(status, 200))
+		d.fail("codex login status: %s: log in from the admin page (/admin) or run \"codex login\" once", redact.Truncate(status, 200))
 		return
 	}
 	d.ok("codex login: %s", redact.Truncate(status, 200))

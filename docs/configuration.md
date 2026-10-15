@@ -38,6 +38,8 @@ Flags (shared by `serve`, `check-config` and `doctor`):
 | `AGENT_BRIDGE_AUTH_MODE` | yes | `subscription` (CLI login) or `api` (API key) |
 | `ANTHROPIC_API_KEY` | only with `api` | Console key; forbidden with `subscription` (as is `ANTHROPIC_AUTH_TOKEN`) |
 | `AGENT_BRIDGE_BACKEND` | no | `claude` (default), `codex` or `kimi` |
+| `AGENT_BRIDGE_ADMIN` | no | `1`/`true` enables the admin page (`admin`) |
+| `AGENT_BRIDGE_ALLOW_REMOTE` | no | `1`/`true` allows a non-loopback address (`allow_remote`); used by the Docker image |
 | `KIMI_MODEL_NAME`, `KIMI_MODEL_API_KEY` | only with `api` and the kimi backend | Model and key the Kimi Code CLI uses; the key is forbidden with `subscription` (as is `KIMI_API_KEY`) |
 | `CODEX_API_KEY` | only with `api` and the codex backend | OpenAI API key; forbidden with `subscription` (as is `CODEX_ACCESS_TOKEN`) |
 | `AGENT_BRIDGE_API_KEY` | if `allow_remote` | Key that clients send as `Authorization: Bearer` |
@@ -68,6 +70,7 @@ environment; in `subscription` mode, so are `ANTHROPIC_API_KEY` and
 | `stream_progress` | `comments` | `comments`, `content` or `none` (see below) |
 | `usage_log` | empty | JSONL file with one line per turn |
 | `metrics` | `false` | Enables `GET /metrics` |
+| `admin` | `false` | Enables `GET /admin`, the page that runs the CLIs' login flows, and `/admin/api/logins` ([Docker and logins](docker.md)) |
 | `cors_origins` | `[]` | Allowed origins, exact, no wildcards |
 | `allow_bypass_permissions` | `false` | Allows `permission_mode: bypassPermissions` |
 | `builtin_models` | `true` | Registers `bridge/opus`, `bridge/sonnet`, `bridge/haiku` (with the codex and kimi backends: `bridge/default`): chat-only agents, without server tools, that accept client functions |

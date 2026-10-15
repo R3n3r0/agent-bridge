@@ -38,6 +38,8 @@ Flag (comuni a `serve`, `check-config` e `doctor`):
 | `AGENT_BRIDGE_AUTH_MODE` | sì | `subscription` (login della CLI) oppure `api` (API key) |
 | `ANTHROPIC_API_KEY` | solo con `api` | Chiave della Console; vietata con `subscription` (lo è anche `ANTHROPIC_AUTH_TOKEN`) |
 | `AGENT_BRIDGE_BACKEND` | no | `claude` (predefinito), `codex` o `kimi` |
+| `AGENT_BRIDGE_ADMIN` | no | `1`/`true` attiva la pagina di amministrazione (`admin`) |
+| `AGENT_BRIDGE_ALLOW_REMOTE` | no | `1`/`true` consente un indirizzo non loopback (`allow_remote`); usata dall'immagine Docker |
 | `KIMI_MODEL_NAME`, `KIMI_MODEL_API_KEY` | solo con `api` e il backend kimi | Modello e chiave usati dalla CLI Kimi Code; la chiave è vietata con `subscription` (lo è anche `KIMI_API_KEY`) |
 | `CODEX_API_KEY` | solo con `api` e il backend codex | Chiave API OpenAI; vietata con `subscription` (lo è anche `CODEX_ACCESS_TOKEN`) |
 | `AGENT_BRIDGE_API_KEY` | se `allow_remote` | Chiave che i client inviano come `Authorization: Bearer` |
@@ -68,6 +70,7 @@ figlio; in modalità `subscription` anche `ANTHROPIC_API_KEY` e
 | `stream_progress` | `comments` | `comments`, `content` o `none` (vedi sotto) |
 | `usage_log` | vuoto | File JSONL con una riga per turno |
 | `metrics` | `false` | Abilita `GET /metrics` |
+| `admin` | `false` | Attiva `GET /admin`, la pagina che esegue i flussi di login delle CLI, e `/admin/api/logins` ([Docker e login](docker.it.md)) |
 | `cors_origins` | `[]` | Origini ammesse, esatte, senza jolly |
 | `allow_bypass_permissions` | `false` | Consente `permission_mode: bypassPermissions` |
 | `builtin_models` | `true` | Registra `bridge/opus`, `bridge/sonnet`, `bridge/haiku` (con i backend codex e kimi: `bridge/default`): agenti solo chat, senza tool del server, che accettano le funzioni del client |

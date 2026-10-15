@@ -1,0 +1,9 @@
+.git
+.github
+dist
+workspace
+*.test
+*.out
+coverage.*
+sessions.json
+.env

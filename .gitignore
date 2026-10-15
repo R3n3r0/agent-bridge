@@ -5,3 +5,5 @@
 *.out
 coverage.*
 sessions.json
+/workspace/
+.env

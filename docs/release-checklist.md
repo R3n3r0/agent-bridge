@@ -77,6 +77,14 @@ With `backend: "kimi"`, the Kimi Code CLI at version `2.2.0` (`runner.KimiMinVer
 - [ ] Image described; `json_schema`: valid JSON; `reasoning_effort: "high"` sets the thinking level.
 - [ ] `api` mode with `KIMI_MODEL_NAME` and `KIMI_MODEL_API_KEY`: same requests work.
 
+## Docker
+
+- [ ] `docker compose build` and `docker compose up -d` with `.env` from `.env.example`: three services running.
+- [ ] `http://127.0.0.1:8787/admin` with the API key: the three CLIs installed and not logged in.
+- [ ] Login of each CLI from the page with a real account; the state becomes "logged in" and survives `docker compose down` and `up` (volume `home`).
+- [ ] A request to each service (`8787`, `8788`, `8789`) answers.
+- [ ] `docker compose exec codex agent-bridge doctor -live` exits with code 0.
+
 ## `api` mode
 
 `AGENT_BRIDGE_AUTH_MODE=api` and `ANTHROPIC_API_KEY` set.

@@ -287,6 +287,22 @@ Every turn records tokens and cost (logs, optional `usage_log` file, `/stats`,
 CLI at API prices, not a charge**: it helps forecast what production with an
 API key will cost.
 
+## Docker
+
+`compose.yaml` runs the bridge with all three CLIs, one service per backend
+(ports 8787, 8788 and 8789 on the host's loopback), sharing one home volume
+for the CLIs' logins:
+
+```sh
+cp .env.example .env      # set AGENT_BRIDGE_API_KEY
+docker compose up -d
+```
+
+Then log in to the CLIs from the admin page, `http://127.0.0.1:8787/admin`:
+it runs each CLI's official login flow on the server and shows its link and
+one-time code (or a box to paste the code back). The CLIs keep the
+credentials; the bridge never reads them. Details: [docs/docker.md](docs/docker.md).
+
 ## Codex backend
 
 With `backend: "codex"` (or `-backend codex`, `AGENT_BRIDGE_BACKEND=codex`)
@@ -419,6 +435,9 @@ Request headers:
 
 Response headers: `X-Session-Id`, `X-Request-Id` and, in non-stream responses,
 `X-Agent-Bridge-Turns`, `X-Agent-Bridge-Cost-USD`, `X-Agent-Bridge-Duration-Ms`.
+
+Admin page (with `admin: true` or `AGENT_BRIDGE_ADMIN=1`): `GET /admin` and
+`/admin/api/logins` to log in to the CLIs ([docs/docker.md](docs/docker.md)).
 
 Commands: `agent-bridge serve` (default), `check-config`, `doctor [-live]`,
 `version`; `mcp-tools` is internal, started by the CLI for client functions.

@@ -292,6 +292,23 @@ Ogni turno registra token e costo (log, file `usage_log` opzionale, `/stats`,
 calcolata dalla CLI ai prezzi API, non un addebito**: serve a prevedere quanto
 costerà la produzione con API key.
 
+## Docker
+
+`compose.yaml` esegue il bridge con tutte e tre le CLI, un servizio per
+backend (porte 8787, 8788 e 8789 sul loopback dell'host), con un unico volume
+home per i login delle CLI:
+
+```sh
+cp .env.example .env      # imposta AGENT_BRIDGE_API_KEY
+docker compose up -d
+```
+
+Poi fai il login nelle CLI dalla pagina di amministrazione,
+`http://127.0.0.1:8787/admin`: esegue sul server il flusso di login ufficiale
+di ogni CLI e ne mostra link e codice monouso (o un campo dove incollare il
+codice). Le credenziali restano alle CLI; il bridge non le legge mai.
+Dettagli: [docs/docker.it.md](docs/docker.it.md).
+
 ## Backend Codex
 
 Con `backend: "codex"` (oppure `-backend codex`, `AGENT_BRIDGE_BACKEND=codex`)
@@ -426,6 +443,10 @@ Header di richiesta:
 
 Header di risposta: `X-Session-Id`, `X-Request-Id` e, nelle risposte non stream,
 `X-Agent-Bridge-Turns`, `X-Agent-Bridge-Cost-USD`, `X-Agent-Bridge-Duration-Ms`.
+
+Pagina di amministrazione (con `admin: true` o `AGENT_BRIDGE_ADMIN=1`):
+`GET /admin` e `/admin/api/logins` per il login nelle CLI
+([docs/docker.it.md](docs/docker.it.md)).
 
 Comandi: `agent-bridge serve` (default), `check-config`, `doctor [-live]`,
 `version`; `mcp-tools` è interno, avviato dalla CLI per le funzioni del client.

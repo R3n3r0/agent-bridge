@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/r3n3r0/agent-bridge/internal/config"
+	"github.com/r3n3r0/agent-bridge/internal/login"
 	"github.com/r3n3r0/agent-bridge/internal/stats"
 	"github.com/r3n3r0/agent-bridge/internal/turn"
 )
@@ -48,6 +49,9 @@ type Options struct {
 	// Ready reports whether the server can execute turns; nil means the
 	// CLI binary must be found in PATH.
 	Ready func() error
+	// Logins, if set, enables the admin page that runs the CLIs' login
+	// flows.
+	Logins login.Manager
 }
 
 // Server serves the bridge API.
@@ -58,6 +62,7 @@ type Server struct {
 	log       *slog.Logger
 	keepalive time.Duration
 	ready     func() error
+	logins    login.Manager
 	keyHash   [32]byte
 }
 
@@ -70,6 +75,7 @@ func New(o Options) *Server {
 		log:       o.Logger,
 		keepalive: o.KeepaliveInterval,
 		ready:     o.Ready,
+		logins:    o.Logins,
 	}
 	if s.log == nil {
 		s.log = slog.Default()
@@ -104,6 +110,7 @@ func (s *Server) Handler() http.Handler {
 	if s.cfg.Metrics {
 		mux.Handle("GET /metrics", s.auth(http.HandlerFunc(s.handleMetrics)))
 	}
+	s.adminRoutes(mux)
 	return s.requestID(s.cors(mux))
 }
 

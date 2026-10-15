@@ -2,7 +2,7 @@
 
 **English** · [Italiano](specification.it.md)
 
-Oct 15, 2026 · @Someone — **rev. 1.6**: Kimi Code CLI over ACP (section 18); rev. 1.5: CLI backends and the Codex CLI (section 17); rev. 1.4: OpenAI function calling (section 13), use from external orchestrators (section 13.8), images (section 15), generation parameters (section 16), configurable model prefix and GPL license (section 14)
+Oct 15, 2026 · @Someone — **rev. 1.7**: Docker image and logins from the admin page (section 19); rev. 1.6: Kimi Code CLI over ACP (section 18); rev. 1.5: CLI backends and the Codex CLI (section 17); rev. 1.4: OpenAI function calling (section 13), use from external orchestrators (section 13.8), images (section 15), generation parameters (section 16), configurable model prefix and GPL license (section 14)
 
 ## 1. Overview and goals
 
@@ -410,7 +410,7 @@ GoReleaser on `v*` tags: binaries for linux, darwin and windows on amd64 and arm
 
 The main documentation is in English (`README.md`, `docs/*.md`), with an Italian version of each document in `*.it.md` (`README.it.md`, `docs/*.it.md`). The README contains, in this order: what it does (with a declaration that it is an independent project), the two ways of using it (as a model and as an agent on the server) and the two kinds of tools, a quick start in three commands, use as a model from external orchestrators, function calling, agents on the server, conversations and sessions, development with a subscription and production with an API key, the "Permitted use" section (section 2), security (section 8), quick reference (examples, endpoints, headers, commands), known limitations, FAQ. Full configuration reference in `docs/configuration.md`.
 
-License: GNU GPL v3 or later (`LICENSE`). Open decisions for the repository owner: final repository name (it must not contain "Claude" or "Anthropic", section 2), official Docker image (`api` mode only).
+License: GNU GPL v3 or later (`LICENSE`). Open decisions for the repository owner: final repository name (it must not contain "Claude" or "Anthropic", section 2), publishing the Docker image (section 19) on a registry.
 
 ## 11. Tests and acceptance criteria
 
@@ -694,3 +694,21 @@ To hold a dialogue on stdin, a backend's `Parser` can also implement `runner.Res
 Other choices: `max_turns` → `KIMI_LOOP_MAX_STEPS_PER_TURN`; client function timeout → `KIMI_MCP_TOOL_TIMEOUT_MS`; `KIMI_DISABLE_TELEMETRY=1` and `KIMI_CODE_NO_AUTO_UPDATE=1` unless set; credentials removed in `subscription`: `KIMI_MODEL_API_KEY`, `KIMI_MODEL_NAME`, `KIMI_API_KEY`; `api` mode requires `KIMI_MODEL_NAME` and `KIMI_MODEL_API_KEY`; minimum version `2.2.0`. ACP reports no token usage or cost (0).
 
 Verified with the real Kimi Code CLI 2.2.0 against a local fake chat completions API: chat, resume and fallback, model and thinking selection, permission policy (refused and approved `Bash`), stateful and stateless function calling through MCP, images, structured output and `doctor -live`. User guide: `docs/kimi.md`.
+
+## 19. Docker image and logins from the admin page
+
+`Dockerfile` builds an image with the bridge and the three CLIs (`node` slim base, `script` from util-linux, non-root user `bridge`, volumes `/home/bridge`, `/work`, `/data`); `compose.yaml` runs one service per backend on ports 8787-8789 of the host's loopback, sharing the home volume. Inside the container the bridge listens on all interfaces (`AGENT_BRIDGE_ALLOW_REMOTE=1`), so `AGENT_BRIDGE_API_KEY` is required.
+
+The `login` package (`login.Manager`, implementation `ProcessManager`) runs each CLI's official login command for the admin page (`admin: true`):
+
+| CLI | Login | Status |
+| --- | --- | --- |
+| claude | `auth login` in a pseudo-terminal (`script -qfec`), the operator pastes the code back | `auth status --json` |
+| codex | `login --device-auth` | `login status` (exit code) |
+| kimi | `login` (device code) | `provider list` |
+
+At most one flow per CLI; 20 minute limit; output kept to the last 64 KB, cleaned of terminal sequences, with its links extracted; the process tree is killed on cancel. The child environment is the server's minus `AGENT_BRIDGE_*` and the upstream API credentials, so the status reflects the stored login. The bridge relays only what the CLI prints and what the operator types; it never reads the credential files, and logs only the start and outcome of a flow.
+
+Endpoints: `GET /admin` (static page), `GET /admin/api/logins`, `POST /admin/api/logins/{cli}`, `POST /admin/api/logins/{cli}/input`, `DELETE /admin/api/logins/{cli}`. They require the Bearer key when set; state-changing calls also require `X-Agent-Bridge-Admin: 1` against cross-site requests.
+
+Verified with the image built from the repository: the three login flows started from the admin API inside the container (link and code shown, pasted code delivered to the CLI, cancel with no leftover process) and `doctor` inside the container. User guide: `docs/docker.md`.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func defaults() *Config {
@@ -81,6 +82,12 @@ func Load(f *Flags, getenv func(string) string) (*Config, error) {
 	if v := getenv(EnvListen); v != "" {
 		cfg.Listen = v
 	}
+	if v, ok := envBool(getenv(EnvAdmin)); ok {
+		cfg.Admin = v
+	}
+	if v, ok := envBool(getenv(EnvAllowRemote)); ok {
+		cfg.AllowRemote = v
+	}
 	if v := getenv(EnvBackend); v != "" {
 		cfg.Backend = v
 	}
@@ -146,4 +153,16 @@ func (c *Config) abs(p string) string {
 		return p
 	}
 	return filepath.Join(c.Dir(), p)
+}
+
+// envBool parses a boolean environment variable; ok is false when it is
+// empty or not a boolean.
+func envBool(v string) (value, ok bool) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
+		return true, true
+	case "0", "false", "no", "off":
+		return false, true
+	}
+	return false, false
 }

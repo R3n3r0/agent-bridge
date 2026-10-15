@@ -156,6 +156,7 @@ const (
 	errInvalidRequest   = "invalid_request_error"
 	errUnsupported      = "unsupported_content"
 	errAuthentication   = "authentication_error"
+	errPermission       = "permission_error"
 	errOverride         = "override_not_allowed"
 	errModelNotFound    = "model_not_found"
 	errSessionBusy      = "session_busy"

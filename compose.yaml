@@ -1,0 +1,54 @@
+# One image, one service per CLI, all sharing the same home volume (and so
+# the same logins). Ports are published on the host's loopback only.
+#
+#   cp .env.example .env        # set AGENT_BRIDGE_API_KEY
+#   docker compose up -d        # or: docker compose up -d codex
+#   open http://127.0.0.1:8787/admin to log in to the CLIs
+
+x-bridge: &bridge
+  build: .
+  image: agent-bridge:local
+  restart: unless-stopped
+  volumes:
+    - home:/home/bridge
+    - ./workspace:/work
+    - data:/data
+
+x-env: &env
+  AGENT_BRIDGE_AUTH_MODE: ${AGENT_BRIDGE_AUTH_MODE:-subscription}
+  AGENT_BRIDGE_API_KEY: ${AGENT_BRIDGE_API_KEY:?set AGENT_BRIDGE_API_KEY in .env}
+  AGENT_BRIDGE_ADMIN: "1"
+  AGENT_BRIDGE_LOG_LEVEL: ${AGENT_BRIDGE_LOG_LEVEL:-info}
+
+services:
+  claude:
+    <<: *bridge
+    environment:
+      <<: *env
+      AGENT_BRIDGE_BACKEND: claude
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      - "127.0.0.1:${CLAUDE_PORT:-8787}:8787"
+
+  codex:
+    <<: *bridge
+    environment:
+      <<: *env
+      AGENT_BRIDGE_BACKEND: codex
+      CODEX_API_KEY: ${CODEX_API_KEY:-}
+    ports:
+      - "127.0.0.1:${CODEX_PORT:-8788}:8787"
+
+  kimi:
+    <<: *bridge
+    environment:
+      <<: *env
+      AGENT_BRIDGE_BACKEND: kimi
+      KIMI_MODEL_NAME: ${KIMI_MODEL_NAME:-}
+      KIMI_MODEL_API_KEY: ${KIMI_MODEL_API_KEY:-}
+    ports:
+      - "127.0.0.1:${KIMI_PORT:-8789}:8787"
+
+volumes:
+  home:
+  data:

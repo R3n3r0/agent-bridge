@@ -38,6 +38,7 @@ Infrastructure                    replaceable implementations
 | `UsageSink` | `stats` | `JSONLUsageLog`, `DiscardUsage` | Destination of usage records |
 | `Broker` | `tools` | `HTTPBroker` | Routes client function calls to the turn waiting for them |
 | `Handler` | `tools` | the running turn | Receives a call and blocks it until the client's result |
+| `Manager` | `login` | `ProcessManager` | Runs the CLIs' official login flows for the admin page and reports their state |
 | `Resolver` | `media` | `HTTPResolver` | Turns an image URL (`data:` or `http(s)`) into validated bytes |
 | `processController` (internal) | `runner` | process group on Unix, `taskkill` on Windows | Termination of the process tree |
 

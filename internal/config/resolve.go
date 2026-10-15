@@ -14,6 +14,7 @@ func (c *Config) resolve() error {
 	if c.Listen == "" {
 		add("listen: must not be empty")
 	}
+	c.DefaultCLIBinary = c.Binary
 	switch c.Backend {
 	case BackendDefault:
 		if c.Binary == "" {

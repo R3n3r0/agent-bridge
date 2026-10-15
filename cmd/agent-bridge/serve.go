@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/r3n3r0/agent-bridge/internal/config"
+	"github.com/r3n3r0/agent-bridge/internal/login"
 	"github.com/r3n3r0/agent-bridge/internal/media"
 	"github.com/r3n3r0/agent-bridge/internal/redact"
 	"github.com/r3n3r0/agent-bridge/internal/runner"
@@ -150,11 +151,17 @@ func serve(args []string, stderr io.Writer) int {
 		ToolBatchWindow: time.Duration(cfg.ClientTools.BatchWindowMs) * time.Millisecond,
 		MaxImages:       cfg.Images.MaxCount,
 	})
+	var logins login.Manager
+	if cfg.Admin {
+		logins = login.NewProcessManager(login.Options{CLIs: login.CLIs(cfg), BaseEnv: os.Environ(), Logger: log})
+		log.Info("admin page enabled", "path", "/admin")
+	}
 	srv := server.New(server.Options{
 		Config: cfg,
 		Turns:  turns,
 		Stats:  collector,
 		Logger: log,
+		Logins: logins,
 	})
 	httpSrv := &http.Server{
 		Handler:           srv.Handler(),
