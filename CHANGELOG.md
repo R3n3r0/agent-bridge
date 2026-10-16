@@ -32,6 +32,10 @@ First complete implementation of the specification ([docs/specification.md](docs
   `codex exec --json`, with sessions, function calling through MCP, images, structured output, reasoning
   effort, sandboxed agents and per-turn usage from the thread totals. `runner.Backend` interface for CLI
   dialects.
+- Kimi Code CLI backend (`backend: "kimi"`, [docs/kimi.md](docs/kimi.md)): the bridge drives `kimi acp` as an
+  Agent Client Protocol client, with sessions, function calling through per-session MCP servers, images,
+  model and thinking selection, modes and permission requests answered from `allowed_tools` and
+  `disallowed_tools`. `runner.Responder` lets a backend hold a dialogue on stdin.
 - Neutral names visible to clients and operators: error code `cli_error`, field `cli_session_id`.
 - OpenAI-style keys (`sk-…`) are redacted from logs and errors.
 - One file per interface and per implementation; large files split by responsibility.

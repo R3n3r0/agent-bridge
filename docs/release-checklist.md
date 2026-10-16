@@ -65,6 +65,18 @@ With `backend: "codex"`, the codex CLI at version `0.162.0` (`runner.CodexMinVer
 - [ ] Image: the answer describes it; `json_schema` with a strict schema: valid JSON; `reasoning_effort: "high"` accepted.
 - [ ] `api` mode with `CODEX_API_KEY`: same requests work.
 
+## Kimi backend
+
+With `backend: "kimi"`, the Kimi Code CLI at version `2.2.0` (`runner.KimiMinVersion`) and the latest one, logged in with `kimi login`.
+
+- [ ] `agent-bridge doctor -live -backend kimi` exits with code 0.
+- [ ] `bridge/default` and `bridge/<model>`: 200; second turn with the same `X-Session-Id` remembers the first.
+- [ ] Chat-only model asked to run a command: the permission request is refused (`debug` log `refused Bash`).
+- [ ] Agent with `allowed_tools: ["Bash"]` that creates a file: approved and present on disk.
+- [ ] Function calling loop with `examples/python/tools.py`, `stateful` and `stateless`.
+- [ ] Image described; `json_schema`: valid JSON; `reasoning_effort: "high"` sets the thinking level.
+- [ ] `api` mode with `KIMI_MODEL_NAME` and `KIMI_MODEL_API_KEY`: same requests work.
+
 ## `api` mode
 
 `AGENT_BRIDGE_AUTH_MODE=api` and `ANTHROPIC_API_KEY` set.

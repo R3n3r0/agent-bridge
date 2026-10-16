@@ -47,12 +47,6 @@ func (c *Config) resolveAgent(name string, f AgentFile) (*Agent, []error) {
 	if a.PermissionMode == "" {
 		a.PermissionMode = defaultPermissionMode
 	}
-	if !oneOf(a.PermissionMode, PermissionModes...) {
-		add("permission_mode", "must be one of %s, got %q", strings.Join(PermissionModes, ", "), a.PermissionMode)
-	}
-	if a.PermissionMode == PermissionBypass && !c.AllowBypassPermissions {
-		add("permission_mode", "bypassPermissions requires allow_bypass_permissions: true")
-	}
 	if f.ToolsEnabled != nil {
 		a.ToolsEnabled = *f.ToolsEnabled
 	}
@@ -62,7 +56,7 @@ func (c *Config) resolveAgent(name string, f AgentFile) (*Agent, []error) {
 		}
 		a.MaxTurns = *f.MaxTurns
 	}
-	c.validateCodexAgent(a, f, add)
+	c.validateBackendAgent(a, f, add)
 	if f.TimeoutSeconds != nil {
 		if *f.TimeoutSeconds < 0 {
 			add("timeout_seconds", "must not be negative, got %d", *f.TimeoutSeconds)
@@ -105,8 +99,8 @@ func (c *Config) isBuiltinName(name string) bool {
 // builtinAgent returns a chat-only agent running model.
 func (c *Config) builtinAgent(name, model string) *Agent {
 	description := "Built-in chat-only model (" + model + ")"
-	if c.Backend == BackendCodex {
-		if model == CodexDefaultAlias {
+	if c.Backend == BackendCodex || c.Backend == BackendKimi {
+		if model == DefaultAlias {
 			model, description = "", "Built-in chat-only model (the model configured in the CLI)"
 		}
 	}

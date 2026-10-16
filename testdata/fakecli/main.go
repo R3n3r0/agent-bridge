@@ -28,7 +28,8 @@
 // with the prompt it received.
 //
 // When the first argument is "exec" the program imitates the codex CLI
-// instead ("codex exec --json"); see codex.go.
+// instead ("codex exec --json"); see codex.go. With "acp" it is an ACP
+// agent like "kimi acp"; see acp.go.
 package main
 
 import (
@@ -55,6 +56,10 @@ func main() {
 	args := os.Args[1:]
 	if len(args) == 1 && args[0] == "--version" && os.Getenv("FAKE_VERSION") != "" {
 		fmt.Println(os.Getenv("FAKE_VERSION"))
+		return
+	}
+	if len(args) > 0 && args[0] == "acp" {
+		runACP(args)
 		return
 	}
 	if len(args) > 0 && args[0] == "exec" {

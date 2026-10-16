@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -36,7 +37,9 @@ func serve(args []string, stderr io.Writer) int {
 	}
 	redact.AddSecret(cfg.APIKey)
 	for _, k := range config.CredentialEnv(cfg.Backend) {
-		redact.AddSecret(os.Getenv(k))
+		if strings.Contains(k, "KEY") || strings.Contains(k, "TOKEN") {
+			redact.AddSecret(os.Getenv(k))
+		}
 	}
 	log := newLogger(stderr, cfg.LogFormat, cfg.LogLevel)
 

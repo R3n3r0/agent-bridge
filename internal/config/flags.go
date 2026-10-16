@@ -13,6 +13,7 @@ type Flags struct {
 	Binary        string
 	Backend       string
 	CodexBinary   string
+	KimiBinary    string
 	LogFormat     string
 	LogLevel      string
 	set           map[string]bool
@@ -26,8 +27,9 @@ func RegisterFlags(fs *flag.FlagSet) *Flags {
 	fs.BoolVar(&f.AllowRemote, "allow-remote", false, "allow listening on a non-loopback address")
 	fs.IntVar(&f.MaxConcurrent, "max-concurrent", 0, "maximum number of concurrent CLI processes")
 	fs.StringVar(&f.Binary, "claude-bin", "", "path or name of the default CLI binary")
-	fs.StringVar(&f.Backend, "backend", "", "CLI backend: claude|codex (default claude)")
+	fs.StringVar(&f.Backend, "backend", "", "CLI backend: claude|codex|kimi (default claude)")
 	fs.StringVar(&f.CodexBinary, "codex-bin", "", "path or name of the codex CLI binary")
+	fs.StringVar(&f.KimiBinary, "kimi-bin", "", "path or name of the Kimi Code CLI binary")
 	fs.StringVar(&f.LogFormat, "log-format", "", "log format: text|json")
 	fs.StringVar(&f.LogLevel, "log-level", "", "log level: debug|info|warn|error")
 	return f

@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // ValidateAuth checks that the authentication mode and the upstream
@@ -18,8 +19,10 @@ func (c *Config) ValidateAuth(getenv func(string) string) error {
 			}
 		}
 	case AuthAPI:
-		if k := requiredCredential(c.Backend); getenv(k) == "" {
-			return fmt.Errorf("%s=api requires %s to be set", EnvAuthMode, k)
+		for _, k := range requiredCredentials(c.Backend) {
+			if getenv(k) == "" {
+				return fmt.Errorf("%s=api requires %s to be set", EnvAuthMode, k)
+			}
 		}
 	case "":
 		return fmt.Errorf("%s is required: set it to subscription (CLI login) or api (API key)", EnvAuthMode)
@@ -79,6 +82,9 @@ func canonicalDir(p string) (string, error) {
 // CanonicalDir returns the absolute, symlink-free form of an existing
 // directory.
 func CanonicalDir(p string) (string, error) { return canonicalDir(p) }
+
+// joinQuoted lists values for error messages.
+func joinQuoted(values []string) string { return strings.Join(values, ", ") }
 
 func oneOf(v string, allowed ...string) bool {
 	for _, a := range allowed {

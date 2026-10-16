@@ -25,8 +25,9 @@ Flag (comuni a `serve`, `check-config` e `doctor`):
 | `-allow-remote` | `allow_remote` |
 | `-max-concurrent N` | `max_concurrent` |
 | `-claude-bin PATH` | `claude_binary` |
-| `-backend claude\|codex` | `backend`, `AGENT_BRIDGE_BACKEND` |
+| `-backend claude\|codex\|kimi` | `backend`, `AGENT_BRIDGE_BACKEND` |
 | `-codex-bin PATH` | `codex_binary` |
+| `-kimi-bin PATH` | `kimi_binary` |
 | `-log-format text\|json` | `AGENT_BRIDGE_LOG_FORMAT` |
 | `-log-level debug\|info\|warn\|error` | `AGENT_BRIDGE_LOG_LEVEL` |
 
@@ -36,7 +37,8 @@ Flag (comuni a `serve`, `check-config` e `doctor`):
 | --- | --- | --- |
 | `AGENT_BRIDGE_AUTH_MODE` | sì | `subscription` (login della CLI) oppure `api` (API key) |
 | `ANTHROPIC_API_KEY` | solo con `api` | Chiave della Console; vietata con `subscription` (lo è anche `ANTHROPIC_AUTH_TOKEN`) |
-| `AGENT_BRIDGE_BACKEND` | no | `claude` (predefinito) o `codex` |
+| `AGENT_BRIDGE_BACKEND` | no | `claude` (predefinito), `codex` o `kimi` |
+| `KIMI_MODEL_NAME`, `KIMI_MODEL_API_KEY` | solo con `api` e il backend kimi | Modello e chiave usati dalla CLI Kimi Code; la chiave è vietata con `subscription` (lo è anche `KIMI_API_KEY`) |
 | `CODEX_API_KEY` | solo con `api` e il backend codex | Chiave API OpenAI; vietata con `subscription` (lo è anche `CODEX_ACCESS_TOKEN`) |
 | `AGENT_BRIDGE_API_KEY` | se `allow_remote` | Chiave che i client inviano come `Authorization: Bearer` |
 | `AGENT_BRIDGE_CONFIG` | no | Percorso del file di configurazione |
@@ -46,7 +48,8 @@ Flag (comuni a `serve`, `check-config` e `doctor`):
 Tutte le variabili `AGENT_BRIDGE_*` vengono rimosse dall'ambiente del processo
 figlio; in modalità `subscription` anche `ANTHROPIC_API_KEY` e
 `ANTHROPIC_AUTH_TOKEN` (con il backend codex: `CODEX_API_KEY`,
-`CODEX_ACCESS_TOKEN` e `OPENAI_API_KEY`).
+`CODEX_ACCESS_TOKEN` e `OPENAI_API_KEY`; con il backend kimi:
+`KIMI_MODEL_API_KEY`, `KIMI_MODEL_NAME` e `KIMI_API_KEY`).
 
 ## Chiavi di primo livello
 
@@ -54,9 +57,10 @@ figlio; in modalità `subscription` anche `ANTHROPIC_API_KEY` e
 | --- | --- | --- |
 | `listen` | `127.0.0.1:8787` | Indirizzo di ascolto |
 | `allow_remote` | `false` | Consente un indirizzo non loopback (richiede `AGENT_BRIDGE_API_KEY`) |
-| `backend` | `claude` | CLI che esegue i turni: `claude` (CLI predefinita) o `codex` ([backend Codex](codex.it.md)) |
+| `backend` | `claude` | CLI che esegue i turni: `claude` (CLI predefinita), `codex` ([backend Codex](codex.it.md)) o `kimi` ([backend Kimi](kimi.it.md)) |
 | `claude_binary` | `claude` | Nome o percorso della CLI predefinita |
 | `codex_binary` | `codex` | Nome o percorso della CLI codex |
+| `kimi_binary` | `kimi` | Nome o percorso della CLI Kimi Code |
 | `max_concurrent` | `2` | Processi attivi contemporaneamente (minimo 1) |
 | `max_queue` | `32` | Richieste in attesa di uno slot; oltre, 429 |
 | `queue_timeout_seconds` | `300` | Attesa massima in coda; oltre, 429 |
@@ -66,7 +70,7 @@ figlio; in modalità `subscription` anche `ANTHROPIC_API_KEY` e
 | `metrics` | `false` | Abilita `GET /metrics` |
 | `cors_origins` | `[]` | Origini ammesse, esatte, senza jolly |
 | `allow_bypass_permissions` | `false` | Consente `permission_mode: bypassPermissions` |
-| `builtin_models` | `true` | Registra `bridge/opus`, `bridge/sonnet`, `bridge/haiku` (con il backend codex: `bridge/default`): agenti solo chat, senza tool del server, che accettano le funzioni del client |
+| `builtin_models` | `true` | Registra `bridge/opus`, `bridge/sonnet`, `bridge/haiku` (con i backend codex e kimi: `bridge/default`): agenti solo chat, senza tool del server, che accettano le funzioni del client |
 | `builtin_prefix` | `bridge/` | Prefisso dei modelli senza configurazione: 1-32 caratteri `[a-zA-Z0-9._-]` seguiti da `/` |
 | `builtin_any_model` | `true` | Accetta anche `bridge/<modello>` per qualsiasi nome di modello (`[a-zA-Z0-9][a-zA-Z0-9._[]-]`, fino a 100 caratteri), come agente solo chat |
 | `system_messages` | `prompt` | Come arrivano i messaggi `system`/`developer`: `prompt` (in testa al prompt, in `<instructions>`), `append` (aggiunti al system prompt della CLI), `replace` (diventano il system prompt al posto di quello della CLI). Sovrascrivibile per richiesta con `X-Agent-Bridge-System-Mode` |
@@ -132,7 +136,10 @@ ripresa. Il prompt è sempre su stdin.
 
 Con il backend codex i campi diventano invece override di `codex exec`, e
 `permission_mode`, `allowed_tools`, `disallowed_tools` e `max_turns` sono
-errori di configurazione: vedi [codex.it.md](codex.it.md).
+errori di configurazione: vedi [codex.it.md](codex.it.md). Con il backend
+kimi `permission_mode` è uno tra `default`, `plan`, `auto`, `yolo`, e
+`allowed_tools`/`disallowed_tools` rispondono alle richieste di permesso
+della CLI: vedi [kimi.it.md](kimi.it.md).
 
 ## `sessions`
 
