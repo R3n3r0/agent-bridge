@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
+
+	"github.com/r3n3r0/agent-bridge/internal/runner"
 )
 
 const (
@@ -22,13 +25,6 @@ type generation struct {
 	maxTokens  int
 	effort     string
 	jsonSchema string
-}
-
-// effortMap translates OpenAI reasoning_effort values to CLI effort levels.
-// xhigh and max are CLI levels accepted as an extension.
-var effortMap = map[string]string{
-	"none": "low", "minimal": "low", "low": "low", "medium": "medium",
-	"high": "high", "xhigh": "xhigh", "max": "max",
 }
 
 // parseGeneration validates n, stop, max_tokens, max_completion_tokens,
@@ -74,11 +70,11 @@ func parseGeneration(req *chatRequest) (generation, *apiError) {
 	}
 
 	if req.ReasoningEffort != "" {
-		effort, ok := effortMap[req.ReasoningEffort]
-		if !ok {
-			return invalid("reasoning_effort must be one of none, minimal, low, medium, high, xhigh, max")
+		if !slices.Contains(runner.EffortLevels, req.ReasoningEffort) {
+			return invalid("reasoning_effort must be one of %s", strings.Join(runner.EffortLevels, ", "))
 		}
-		g.effort = effort
+		// The backend maps the value to the levels of its CLI.
+		g.effort = req.ReasoningEffort
 	}
 
 	if rf := bytes.TrimSpace(req.ResponseFormat); len(rf) > 0 && !bytes.Equal(rf, []byte("null")) {

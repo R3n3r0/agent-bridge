@@ -7,6 +7,9 @@ API (`/v1/chat/completions`, `/v1/models`) and fulfils every request by running
 the official Claude Code CLI in headless mode
 (`claude -p --output-format stream-json`).
 
+It can also run the OpenAI Codex CLI (`codex exec --json`) instead, with the
+same API: see the [Codex backend](docs/codex.md).
+
 Any client or framework that speaks OpenAI can use it by changing only
 `base_url`, `api_key` and `model`: chat, streaming, function calling (tool
 calling) and image input work with the official SDKs unchanged.
@@ -17,6 +20,8 @@ frameworks that accept a custom OpenAI `base_url` (for example LangChain,
 LlamaIndex, CrewAI, AutoGen or the OpenAI SDKs for Python, Node and Go) use
 Claude Code headless as a drop-in chat completions model or as a coding agent,
 with tool calling, MCP servers, sessions, streaming (SSE) and per-agent models.
+The same server is an OpenAI-compatible API, proxy and gateway for the
+OpenAI Codex CLI.
 
 > **Independent project.** agent-bridge is not developed, endorsed or
 > supported by Anthropic. It runs the official `claude` binary installed on
@@ -27,6 +32,8 @@ with tool calling, MCP servers, sessions, streaming (SSE) and per-agent models.
 - Same build for development (subscription login) and production (API key).
 - OpenAI function calling (`tools`, `tool_calls`), streaming included.
 - Image input (`image_url` parts: data URLs and http(s) URLs).
+- Two CLI backends: the default one and the OpenAI Codex CLI
+  (`backend: "codex"`, see [docs/codex.md](docs/codex.md)).
 - Free software, licensed under the GNU GPL v3 or later.
 
 ## Two ways to use it
@@ -277,6 +284,24 @@ Every turn records tokens and cost (logs, optional `usage_log` file, `/stats`,
 CLI at API prices, not a charge**: it helps forecast what production with an
 API key will cost.
 
+## Codex backend
+
+With `backend: "codex"` (or `-backend codex`, `AGENT_BRIDGE_BACKEND=codex`)
+every turn runs `codex exec --json` instead of the default CLI. The API,
+sessions, function calling, images, structured output and reasoning effort
+work the same way; built-in models become `bridge/default` (the model
+configured in Codex) and `bridge/<model>`; agents with tools use a `sandbox`
+(`read-only`, `workspace-write`, `danger-full-access`) instead of
+`permission_mode` and `allowed_tools`. Authentication: `codex login` in
+`subscription` mode, `CODEX_API_KEY` in `api` mode.
+
+```sh
+codex login
+AGENT_BRIDGE_AUTH_MODE=subscription agent-bridge -backend codex
+```
+
+Full mapping, agent fields and differences: [docs/codex.md](docs/codex.md).
+
 ## Permitted use
 
 agent-bridge is a tool: whoever uses it remains responsible for complying with
@@ -375,7 +400,8 @@ Response headers: `X-Session-Id`, `X-Request-Id` and, in non-stream responses,
 Commands: `agent-bridge serve` (default), `check-config`, `doctor [-live]`,
 `version`; `mcp-tools` is internal, started by the CLI for client functions.
 `doctor` checks the CLI and its version, the consistency of the authentication
-mode and directory permissions; with `-live` it runs a test turn on Haiku.
+mode and directory permissions; with `-live` it runs a test turn on Haiku (with
+the Codex backend: `codex login status`, and the model configured in Codex).
 
 ## Known limitations
 

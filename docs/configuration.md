@@ -25,6 +25,8 @@ Flags (shared by `serve`, `check-config` and `doctor`):
 | `-allow-remote` | `allow_remote` |
 | `-max-concurrent N` | `max_concurrent` |
 | `-claude-bin PATH` | `claude_binary` |
+| `-backend claude\|codex` | `backend`, `AGENT_BRIDGE_BACKEND` |
+| `-codex-bin PATH` | `codex_binary` |
 | `-log-format text\|json` | `AGENT_BRIDGE_LOG_FORMAT` |
 | `-log-level debug\|info\|warn\|error` | `AGENT_BRIDGE_LOG_LEVEL` |
 
@@ -34,6 +36,8 @@ Flags (shared by `serve`, `check-config` and `doctor`):
 | --- | --- | --- |
 | `AGENT_BRIDGE_AUTH_MODE` | yes | `subscription` (CLI login) or `api` (API key) |
 | `ANTHROPIC_API_KEY` | only with `api` | Console key; forbidden with `subscription` (as is `ANTHROPIC_AUTH_TOKEN`) |
+| `AGENT_BRIDGE_BACKEND` | no | `claude` (default) or `codex` |
+| `CODEX_API_KEY` | only with `api` and the codex backend | OpenAI API key; forbidden with `subscription` (as is `CODEX_ACCESS_TOKEN`) |
 | `AGENT_BRIDGE_API_KEY` | if `allow_remote` | Key that clients send as `Authorization: Bearer` |
 | `AGENT_BRIDGE_CONFIG` | no | Path of the configuration file |
 | `AGENT_BRIDGE_LISTEN` | no | Listen address, default `127.0.0.1:8787` |
@@ -41,7 +45,8 @@ Flags (shared by `serve`, `check-config` and `doctor`):
 
 All `AGENT_BRIDGE_*` variables are removed from the child process's
 environment; in `subscription` mode, so are `ANTHROPIC_API_KEY` and
-`ANTHROPIC_AUTH_TOKEN`.
+`ANTHROPIC_AUTH_TOKEN` (with the codex backend: `CODEX_API_KEY`,
+`CODEX_ACCESS_TOKEN` and `OPENAI_API_KEY`).
 
 ## Top-level keys
 
@@ -49,7 +54,9 @@ environment; in `subscription` mode, so are `ANTHROPIC_API_KEY` and
 | --- | --- | --- |
 | `listen` | `127.0.0.1:8787` | Listen address |
 | `allow_remote` | `false` | Allows a non-loopback address (requires `AGENT_BRIDGE_API_KEY`) |
-| `claude_binary` | `claude` | Name or path of the CLI |
+| `backend` | `claude` | CLI that runs the turns: `claude` (default CLI) or `codex` ([Codex backend](codex.md)) |
+| `claude_binary` | `claude` | Name or path of the default CLI |
+| `codex_binary` | `codex` | Name or path of the codex CLI |
 | `max_concurrent` | `2` | Processes active at the same time (minimum 1) |
 | `max_queue` | `32` | Requests waiting for a slot; beyond that, 429 |
 | `queue_timeout_seconds` | `300` | Maximum wait in the queue; beyond that, 429 |
@@ -59,7 +66,7 @@ environment; in `subscription` mode, so are `ANTHROPIC_API_KEY` and
 | `metrics` | `false` | Enables `GET /metrics` |
 | `cors_origins` | `[]` | Allowed origins, exact, no wildcards |
 | `allow_bypass_permissions` | `false` | Allows `permission_mode: bypassPermissions` |
-| `builtin_models` | `true` | Registers `bridge/opus`, `bridge/sonnet`, `bridge/haiku`: chat-only agents, without server tools, that accept client functions |
+| `builtin_models` | `true` | Registers `bridge/opus`, `bridge/sonnet`, `bridge/haiku` (with the codex backend: `bridge/default`): chat-only agents, without server tools, that accept client functions |
 | `builtin_prefix` | `bridge/` | Prefix of the zero-config models: 1-32 characters `[a-zA-Z0-9._-]` followed by `/` |
 | `builtin_any_model` | `true` | Also accepts `bridge/<model>` for any model name (`[a-zA-Z0-9][a-zA-Z0-9._[]-]`, up to 100 characters), as a chat-only agent |
 | `system_messages` | `prompt` | How `system`/`developer` messages are delivered: `prompt` (at the start of the prompt, in `<instructions>`), `append` (appended to the CLI's system prompt), `replace` (they become the system prompt in place of the CLI's). Can be overridden per request with `X-Agent-Bridge-System-Mode` |
@@ -103,6 +110,7 @@ The key in the `agents` object is the name exposed as `model`: characters
 | `cwd` | string | required if `tools_enabled` | Working directory of the process |
 | `add_dirs` | []string | empty | `--add-dir`, once per entry |
 | `mcp_config` | string | empty | `--mcp-config` |
+| `sandbox` | string | `workspace-write` | Codex backend only: `read-only`, `workspace-write` or `danger-full-access` (requires `allow_bypass_permissions`) |
 | `timeout_seconds` | int | `defaults.timeout_seconds` | Process timeout (0 = none) |
 
 Relative paths (`cwd`, `add_dirs`, `mcp_config`, `usage_log`,
@@ -121,6 +129,10 @@ Arguments passed to the CLI, in fixed order: `-p --output-format stream-json
 --verbose`, then only the flags for fields that are set, then the `--mcp-config` for
 client functions if present, then `--resume <id>` if the session is being
 resumed. The prompt is always on stdin.
+
+With the codex backend the fields map to `codex exec` overrides instead, and
+`permission_mode`, `allowed_tools`, `disallowed_tools` and `max_turns` are
+configuration errors: see [codex.md](codex.md).
 
 ## `sessions`
 
@@ -234,7 +246,7 @@ equal.
 | 404 | `model_not_found` | Nonexistent agent or invalid `bridge/<model>` name |
 | 409 | `session_busy` | `on_busy: reject` and session in use |
 | 429 | `queue_full` | Queue full or wait expired, with `Retry-After: 30` |
-| 502 | `claude_code_error` | Process exited with an error or without a result; includes at most 2000 characters of stderr, scrubbed of secrets |
+| 502 | `cli_error` | Process exited with an error or without a result; includes at most 2000 characters of stderr, scrubbed of secrets |
 | 503 | `server_error` | Server shutdown during the turn |
 | 504 | `timeout` | Agent's `timeout_seconds` exceeded |
 
@@ -244,7 +256,7 @@ same `error` object, followed by `data: [DONE]`.
 ## Observability
 
 Each turn produces a log line with `request_id`, `agent`, `model`,
-`session_key`, `claude_session_id`, `resumed`, `turns`, `duration_ms`,
+`session_key`, `cli_session_id`, `resumed`, `turns`, `duration_ms`,
 `queue_ms`, `cost_usd`, the four token counters and `outcome` (`success`,
 `max_turns`, `error`, `timeout`, `canceled`, `tool_calls` for processes closed
 after returning calls in `stateless` mode). With `usage_log` the same fields,

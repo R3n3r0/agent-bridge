@@ -131,7 +131,7 @@ func TestFilePersistence(t *testing.T) {
 func TestFileLoadPrunesAndErrors(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "s.json")
-	old := `{"a|1":{"claude_session_id":"x","last_used_at":"2000-01-01T00:00:00Z"}}`
+	old := `{"a|1":{"cli_session_id":"x","last_used_at":"2000-01-01T00:00:00Z"}}`
 	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
 		t.Fatal(err)
 	}

@@ -53,6 +53,18 @@ Ambiente senza `ANTHROPIC_API_KEY` né `ANTHROPIC_AUTH_TOKEN`, login fatto con l
 - [ ] Immagine vicina a 5 MB: accettata (limite di stdin con ingresso strutturato).
 - [ ] Secondo turno con la stessa `X-Session-Id` e una nuova immagine: `--resume` con ingresso strutturato funziona.
 
+## Backend Codex
+
+Con `backend: "codex"`, la CLI codex alla versione `0.162.0` (`runner.CodexMinVersion`) e all'ultima disponibile, con login fatto con `codex login`.
+
+- [ ] `agent-bridge doctor -live -backend codex` termina con codice 0 (`codex login status` ok).
+- [ ] `bridge/default` e `bridge/<modello>`: 200, `usage` valorizzato; un secondo turno con lo stesso `X-Session-Id` ricorda il primo e riporta solo i consumi di quel turno.
+- [ ] Modello solo chat a cui si chiede di eseguire un comando: nessun comando eseguito (il log `debug` non mostra uso di strumenti).
+- [ ] Agente con `sandbox: workspace-write` che modifica un file in un repository di prova: modifica presente su disco.
+- [ ] Ciclo di function calling con `examples/python/tools.py`, `stateful` e `stateless`.
+- [ ] Immagine: la risposta la descrive; `json_schema` con uno schema strict: JSON valido; `reasoning_effort: "high"` accettato.
+- [ ] Modalità `api` con `CODEX_API_KEY`: le stesse richieste funzionano.
+
 ## Modalità `api`
 
 `AGENT_BRIDGE_AUTH_MODE=api` e `ANTHROPIC_API_KEY` impostata.

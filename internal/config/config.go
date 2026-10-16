@@ -80,7 +80,9 @@ var agentNameRe = regexp.MustCompile(`^[a-zA-Z0-9._/-]+$`)
 type Config struct {
 	Listen                 string               `json:"listen"`
 	AllowRemote            bool                 `json:"allow_remote"`
+	Backend                string               `json:"backend"`
 	Binary                 string               `json:"claude_binary"`
+	CodexBinary            string               `json:"codex_binary"`
 	MaxConcurrent          int                  `json:"max_concurrent"`
 	MaxQueue               int                  `json:"max_queue"`
 	QueueTimeoutSeconds    int                  `json:"queue_timeout_seconds"`

@@ -23,7 +23,7 @@ import (
 
 // Entry is one stored session.
 type Entry struct {
-	CLISessionID string    `json:"claude_session_id"`
+	CLISessionID string    `json:"cli_session_id"`
 	Agent        string    `json:"agent"`
 	Cwd          string    `json:"cwd"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -32,6 +32,17 @@ type Entry struct {
 	// InstructionsHash fingerprints the first turn's system messages, so a
 	// later change can be reported. It never contains the text itself.
 	InstructionsHash string `json:"instructions_hash,omitempty"`
+	// CLIUsage is the cumulative usage last reported by CLIs that report
+	// session totals instead of per-turn usage.
+	CLIUsage *UsageTotals `json:"cli_usage,omitempty"`
+}
+
+// UsageTotals are cumulative token counters of a CLI session.
+type UsageTotals struct {
+	Input      int64 `json:"input"`
+	Output     int64 `json:"output"`
+	CacheRead  int64 `json:"cache_read"`
+	CacheWrite int64 `json:"cache_write"`
 }
 
 // Store persists session entries. Implementations must be safe for

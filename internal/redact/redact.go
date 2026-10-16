@@ -13,8 +13,10 @@ import (
 // Placeholder replaces every secret found.
 const Placeholder = "[REDACTED]"
 
-// providerKey matches upstream provider keys (prefix "sk-ant-").
-var providerKey = regexp.MustCompile(`sk-ant-[A-Za-z0-9_\-]*`)
+// providerKey matches upstream provider keys: any "sk-ant-" key, and "sk-"
+// keys of at least 8 characters (OpenAI keys, including the project and
+// service account forms).
+var providerKey = regexp.MustCompile(`sk-ant-[A-Za-z0-9_\-]*|sk-[A-Za-z0-9_\-]{8,}`)
 
 var (
 	mu      sync.RWMutex

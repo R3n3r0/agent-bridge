@@ -92,6 +92,8 @@ type harnessOpts struct {
 	sessions   *session.Options        // registry options
 	extra      func(dir string) string // returns extra agents JSON (without braces), given the temp dir
 	toolWait   time.Duration           // client function wait timeout
+	backend    string                  // "codex" for the codex backend
+	agents     string                  // replaces the default agents JSON
 }
 
 func newHarness(t *testing.T, o harnessOpts) *harness {
@@ -103,6 +105,9 @@ func newHarness(t *testing.T, o harnessOpts) *harness {
 	}
 	agents := `"coder": {"cwd": "work", "allowed_tools": ["Read", "Edit", "Bash"], "system_prompt": "agent prompt"},
 		"chat": {"tools_enabled": false, "model": "haiku"}`
+	if o.agents != "" {
+		agents = o.agents
+	}
 	if o.extra != nil {
 		agents += ", " + o.extra(dir)
 	}
@@ -117,7 +122,11 @@ func newHarness(t *testing.T, o harnessOpts) *harness {
 	}
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)
 	fl := config.RegisterFlags(fs)
-	_ = fs.Parse([]string{"-config", cfgPath, "-claude-bin", fakeBin})
+	flags := []string{"-config", cfgPath, "-claude-bin", fakeBin}
+	if o.backend == config.BackendCodex {
+		flags = append(flags, "-backend", config.BackendCodex, "-codex-bin", fakeBin)
+	}
+	_ = fs.Parse(flags)
 	fl.MarkSet(fs)
 	mode := o.authMode
 	if mode == "" {
@@ -173,6 +182,10 @@ func newHarness(t *testing.T, o harnessOpts) *harness {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { broker.Close() })
+	backend, err := runner.NewBackend(cfg.Backend)
+	if err != nil {
+		t.Fatal(err)
+	}
 	turns := turn.NewService(turn.Deps{
 		Store:    store,
 		Locker:   session.NewKeyLocker(),
@@ -183,6 +196,7 @@ func newHarness(t *testing.T, o harnessOpts) *harness {
 		Images:   media.NewHTTPResolver(media.Options{MaxBytes: cfg.Images.MaxBytes, FetchURLs: true, AllowPrivateNetworks: true}),
 		Logger:   log,
 	}, turn.Settings{
+		Backend:         backend,
 		Binary:          cfg.Binary,
 		AuthMode:        cfg.AuthMode,
 		OnBusy:          cfg.Sessions.OnBusy,

@@ -1,6 +1,3 @@
-// Package runner is the only part of the bridge that knows the CLI flags and
-// its stream-json event format. It builds arguments and environment, runs
-// one process per turn, parses events and limits concurrency.
 package runner
 
 import (
@@ -14,62 +11,18 @@ import (
 	"github.com/r3n3r0/agent-bridge/internal/config"
 )
 
-// MinCLIVersion is the oldest CLI version the bridge is tested against. It is
-// the release that introduced the 10 MB stdin limit the prompt builder relies
-// on.
+// MinCLIVersion is the oldest version of the default CLI the bridge is tested
+// against. It is the release that introduced the 10 MB stdin limit the
+// prompt builder relies on.
 const MinCLIVersion = "2.1.128"
 
-// Spec describes the agent settings effective for one turn, after per-request
-// overrides have been applied.
-type Spec struct {
-	Model            string
-	SystemPrompt     string
-	SystemPromptMode string
-	AllowedTools     []string
-	DisallowedTools  []string
-	ToolsEnabled     bool
-	PermissionMode   string
-	MaxTurns         int
-	AddDirs          []string
-	MCPConfig        string
-	ResumeID         string
-	// ClientTools, when set, is the MCP configuration exposing the API
-	// client's functions under ClientToolsServer. They are available even
-	// to chat-only agents, since they run on the client, not on the server.
-	ClientTools string
-	// StructuredInput sends the prompt as a stream-json user message on
-	// stdin (see UserMessage) instead of plain text; needed for images.
-	StructuredInput bool
-	// Effort is the reasoning effort (--effort); empty keeps the default.
-	Effort string
-	// JSONSchema asks for validated structured output (--json-schema).
-	JSONSchema string
+// effortLevels maps EffortLevels to the levels of the default CLI.
+var effortLevels = map[string]string{
+	"none": "low", "minimal": "low", "low": "low", "medium": "medium",
+	"high": "high", "xhigh": "xhigh", "max": "max",
 }
 
-// Effort levels accepted by the CLI.
-var EffortLevels = []string{"low", "medium", "high", "xhigh", "max"}
-
-// ClientToolsServer is the MCP server name used for client functions; the
-// CLI names the tools "mcp__<server>__<function>".
-const ClientToolsServer = "functions"
-
-// SpecFromAgent copies the agent settings into a Spec.
-func SpecFromAgent(a *config.Agent) Spec {
-	return Spec{
-		Model:            a.Model,
-		SystemPrompt:     a.SystemPrompt,
-		SystemPromptMode: a.SystemPromptMode,
-		AllowedTools:     append([]string(nil), a.AllowedTools...),
-		DisallowedTools:  append([]string(nil), a.DisallowedTools...),
-		ToolsEnabled:     a.ToolsEnabled,
-		PermissionMode:   a.PermissionMode,
-		MaxTurns:         a.MaxTurns,
-		AddDirs:          append([]string(nil), a.AddDirs...),
-		MCPConfig:        a.MCPConfig,
-	}
-}
-
-// Args returns the CLI arguments for s, in a fixed order. The prompt is
+// Args returns the arguments of the default CLI for s, in a fixed order. The prompt is
 // never an argument: it is written to stdin.
 func Args(s Spec) []string {
 	args := []string{"-p", "--output-format", "stream-json", "--verbose"}
@@ -80,7 +33,9 @@ func Args(s Spec) []string {
 		args = append(args, "--model", s.Model)
 	}
 	if s.Effort != "" {
-		args = append(args, "--effort", s.Effort)
+		if level, ok := effortLevels[s.Effort]; ok {
+			args = append(args, "--effort", level)
+		}
 	}
 	if s.SystemPrompt != "" {
 		if s.SystemPromptMode == config.PromptModeReplace {
@@ -132,23 +87,6 @@ func Args(s Spec) []string {
 	return args
 }
 
-// Env returns the child environment: base minus every AGENT_BRIDGE_*
-// variable and, in subscription mode, minus upstream API credentials.
-func Env(base []string, mode config.AuthMode) []string {
-	out := make([]string, 0, len(base))
-	for _, kv := range base {
-		k, _, _ := strings.Cut(kv, "=")
-		if strings.HasPrefix(k, "AGENT_BRIDGE_") {
-			continue
-		}
-		if mode == config.AuthSubscription && (k == config.EnvUpstreamKey || k == config.EnvUpstreamTok) {
-			continue
-		}
-		out = append(out, kv)
-	}
-	return out
-}
-
 // WithMaxOutputTokens limits the output tokens of each model request of the
 // process; n <= 0 leaves env unchanged. It replaces any inherited value.
 func WithMaxOutputTokens(env []string, n int) []string {
@@ -179,12 +117,6 @@ func WithClientToolsTimeout(env []string, d time.Duration) []string {
 		d = 24 * time.Hour
 	}
 	return append(env, key+"="+strconv.FormatInt(d.Milliseconds(), 10))
-}
-
-// ImageBlock is an image sent to the CLI.
-type ImageBlock struct {
-	MediaType string
-	Data      []byte
 }
 
 // UserMessage returns the stream-json stdin line carrying text and images.

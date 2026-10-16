@@ -23,7 +23,12 @@ func (lt *liveTurn) classify(out *runner.Outcome, runErr error) (*Result, *Error
 		case res.Subtype == runner.SubtypeStructuredOutputFail:
 			return nil, lt.finish(stats.OutcomeError, newError(KindUpstream, "the model could not produce output matching the JSON schema"))
 		case res.Subtype == runner.SubtypeSuccess && !res.IsError && lt.req.Spec.JSONSchema != "":
-			structured, err := compactJSON(res.StructuredOutput)
+			raw := res.StructuredOutput
+			if len(raw) == 0 {
+				// CLIs without a separate field return the JSON as text.
+				raw = json.RawMessage(strings.TrimSpace(res.Result))
+			}
+			structured, err := compactJSON(raw)
 			if err != nil {
 				return nil, lt.finish(stats.OutcomeError, newError(KindUpstream, "the turn ended without structured output"))
 			}
@@ -51,6 +56,8 @@ func (lt *liveTurn) classify(out *runner.Outcome, runErr error) (*Result, *Error
 			CostUSD:          res.CostUSD,
 			DurationMs:       lt.rec.DurationMs,
 		}, nil
+	case errors.As(runErr, new(*prepareError)):
+		return nil, lt.finish(stats.OutcomeError, newError(KindInvalid, "%v", runErr))
 	case errors.Is(runErr, runner.ErrTimeout):
 		return nil, lt.finish(stats.OutcomeTimeout,
 			newError(KindTimeout, "turn exceeded the agent timeout of %s", lt.req.Agent.Timeout))
@@ -75,18 +82,11 @@ func (lt *liveTurn) classify(out *runner.Outcome, runErr error) (*Result, *Error
 
 // resumeMissing reports whether a resumed turn failed because the stored
 // session does not exist any more.
-func resumeMissing(out *runner.Outcome, err error) bool {
-	if errors.Is(err, runner.ErrTimeout) || errors.Is(err, runner.ErrCanceled) {
+func (s *service) resumeMissing(out *runner.Outcome, err error) bool {
+	if errors.Is(err, runner.ErrTimeout) || errors.Is(err, runner.ErrCanceled) || errors.As(err, new(*prepareError)) {
 		return false
 	}
-	text := strings.ToLower(out.Stderr)
-	if out.Result != nil {
-		if !out.Result.IsError && out.Result.Subtype == runner.SubtypeSuccess {
-			return false
-		}
-		text += "\n" + strings.ToLower(out.Result.Result)
-	}
-	return strings.Contains(text, "no conversation found")
+	return s.Backend.ResumeMissing(out)
 }
 
 // compactJSON returns raw as compact JSON; empty or null is an error.

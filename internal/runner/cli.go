@@ -30,9 +30,13 @@ func (CLIExecutor) Run(ctx context.Context, req Request) (*Outcome, error) {
 		defer cancel()
 	}
 
+	parser := req.Parser
+	if parser == nil {
+		parser = streamJSONParser{}
+	}
 	var mu sync.Mutex
 	handle := func(line []byte) {
-		for _, ev := range ParseLine(line) {
+		for _, ev := range parser.Parse(line) {
 			mu.Lock()
 			switch ev.Kind {
 			case KindInit:

@@ -28,3 +28,10 @@ First complete implementation of the specification ([docs/specification.md](docs
 - Neutral, configurable prefix for zero-config models (`builtin_prefix`, default `bridge/`).
 - Documentation in English, with an Italian version of every document (`*.it.md`).
 - Licensed under the GNU GPL v3 or later.
+- Codex CLI backend (`backend: "codex"`, [docs/codex.md](docs/codex.md)): same API on top of
+  `codex exec --json`, with sessions, function calling through MCP, images, structured output, reasoning
+  effort, sandboxed agents and per-turn usage from the thread totals. `runner.Backend` interface for CLI
+  dialects.
+- Neutral names visible to clients and operators: error code `cli_error`, field `cli_session_id`.
+- OpenAI-style keys (`sk-…`) are redacted from logs and errors.
+- One file per interface and per implementation; large files split by responsibility.

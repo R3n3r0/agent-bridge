@@ -160,7 +160,7 @@ const (
 	errModelNotFound    = "model_not_found"
 	errSessionBusy      = "session_busy"
 	errQueueFull        = "queue_full"
-	errUpstream         = "claude_code_error"
+	errUpstream         = "cli_error"
 	errTimeout          = "timeout"
 	errServerError      = "server_error"
 	retryAfterQueueFull = 30
