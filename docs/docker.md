@@ -50,7 +50,11 @@ The page lists each CLI with its state (installed, logged in or not) and a
 | --- | --- | --- |
 | Default CLI | `auth login` | Open the link, sign in, copy the code the sign-in page shows at the end, paste it in **Send code** |
 | Codex | `login --device-auth` | Open the link and enter the one-time code shown |
-| Kimi Code | `login` | Open the link (the code is already in it) and confirm |
+| Kimi Code | `login --region global` | Open the link on kimi.ai (the code is already in it) and confirm |
+
+Kimi Code logs in on **kimi.ai**, the service outside mainland China. Set
+`AGENT_BRIDGE_KIMI_REGION=mainland-cn` in `.env` for an account on kimi.com,
+then log in again.
 
 The page refreshes every two seconds while a login is running and shows the
 outcome; **Cancel** stops it. A login expires after 20 minutes.
@@ -68,7 +72,7 @@ What the bridge does and does not do:
 
 The same flows can also be run in a terminal:
 `docker compose exec codex codex login --device-auth`,
-`docker compose exec kimi kimi login`,
+`docker compose exec kimi kimi login --region global`,
 `docker compose exec -it claude claude auth login`.
 
 ## Admin API

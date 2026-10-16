@@ -348,7 +348,7 @@ permesso della CLI in base a `allowed_tools`, `disallowed_tools` e
 `KIMI_MODEL_API_KEY` in modalità `api`. ACP non riporta consumi né costi.
 
 ```sh
-kimi login
+kimi login --region global   # kimi.ai; mainland-cn per kimi.com
 AGENT_BRIDGE_AUTH_MODE=subscription agent-bridge -backend kimi
 ```
 

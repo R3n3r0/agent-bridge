@@ -11,6 +11,12 @@ const (
 // Kimi settings.
 const (
 	DefaultKimiBinary = "kimi"
+	// EnvKimiRegion selects the Kimi login region from the environment.
+	EnvKimiRegion = "AGENT_BRIDGE_KIMI_REGION"
+	// KimiRegionGlobal logs in on kimi.ai, the service outside mainland
+	// China; KimiRegionChina logs in on kimi.com.
+	KimiRegionGlobal = "global"
+	KimiRegionChina  = "mainland-cn"
 	// KimiModeYolo approves every tool call; it requires
 	// allow_bypass_permissions.
 	KimiModeYolo = "yolo"

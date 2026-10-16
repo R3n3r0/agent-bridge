@@ -102,7 +102,7 @@ login-codex: ## Log in to Codex from the terminal
 	$(COMPOSE) exec codex codex login --device-auth
 
 login-kimi: ## Log in to Kimi Code from the terminal
-	$(COMPOSE) exec kimi kimi login
+	$(COMPOSE) exec kimi sh -c 'kimi login --region "$${AGENT_BRIDGE_KIMI_REGION:-global}"'
 
 shell: ## Open a shell in a service (claude, or SERVICES=codex)
 	$(COMPOSE) exec $(or $(SERVICES),claude) bash

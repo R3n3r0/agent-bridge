@@ -16,6 +16,7 @@ func defaults() *Config {
 		Binary:               DefaultBinary,
 		CodexBinary:          DefaultCodexBinary,
 		KimiBinary:           DefaultKimiBinary,
+		KimiRegion:           KimiRegionGlobal,
 		MaxConcurrent:        DefaultMaxConcurrent,
 		MaxQueue:             DefaultMaxQueue,
 		QueueTimeoutSeconds:  DefaultQueueTimeout,
@@ -90,6 +91,9 @@ func Load(f *Flags, getenv func(string) string) (*Config, error) {
 	}
 	if v := getenv(EnvBackend); v != "" {
 		cfg.Backend = v
+	}
+	if v := getenv(EnvKimiRegion); v != "" {
+		cfg.KimiRegion = v
 	}
 	if v := getenv(EnvLogFormat); v != "" {
 		cfg.LogFormat = v

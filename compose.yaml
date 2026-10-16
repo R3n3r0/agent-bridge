@@ -21,6 +21,8 @@ x-env: &env
   AGENT_BRIDGE_API_KEY: ${AGENT_BRIDGE_API_KEY:?set AGENT_BRIDGE_API_KEY in .env}
   AGENT_BRIDGE_ADMIN: "1"
   AGENT_BRIDGE_LOG_LEVEL: ${AGENT_BRIDGE_LOG_LEVEL:-info}
+  # Kimi login: global (kimi.ai) or mainland-cn (kimi.com).
+  AGENT_BRIDGE_KIMI_REGION: ${AGENT_BRIDGE_KIMI_REGION:-global}
 
 services:
   claude:

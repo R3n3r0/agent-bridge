@@ -52,7 +52,11 @@ un pulsante **Log in** che avvia sul server il comando di login della CLI:
 | --- | --- | --- |
 | CLI predefinita | `auth login` | Apri il link, accedi, copia il codice che la pagina di accesso mostra alla fine e incollalo in **Send code** |
 | Codex | `login --device-auth` | Apri il link e inserisci il codice monouso mostrato |
-| Kimi Code | `login` | Apri il link (il codice è già incluso) e conferma |
+| Kimi Code | `login --region global` | Apri il link su kimi.ai (il codice è già incluso) e conferma |
+
+Kimi Code accede su **kimi.ai**, il servizio fuori dalla Cina continentale.
+Imposta `AGENT_BRIDGE_KIMI_REGION=mainland-cn` in `.env` per un account su
+kimi.com, poi ripeti il login.
 
 Mentre un login è in corso la pagina si aggiorna ogni due secondi e ne
 mostra l'esito; **Cancel** lo interrompe. Un login scade dopo 20 minuti.
@@ -70,7 +74,7 @@ Cosa fa e cosa non fa il bridge:
 
 Gli stessi flussi si possono eseguire anche da terminale:
 `docker compose exec codex codex login --device-auth`,
-`docker compose exec kimi kimi login`,
+`docker compose exec kimi kimi login --region global`,
 `docker compose exec -it claude claude auth login`.
 
 ## API di amministrazione

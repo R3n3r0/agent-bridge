@@ -36,6 +36,9 @@ func (c *Config) resolve() error {
 	default:
 		add("backend: must be claude, codex or kimi, got %q", c.Backend)
 	}
+	if !oneOf(c.KimiRegion, KimiRegionGlobal, KimiRegionChina) {
+		add("kimi_region: must be global or mainland-cn, got %q", c.KimiRegion)
+	}
 	if c.MaxConcurrent < 1 {
 		add("max_concurrent: must be at least 1, got %d", c.MaxConcurrent)
 	}
