@@ -44,6 +44,8 @@ First complete implementation of the specification ([docs/specification.md](docs
 - Admin page rewritten in React (`web/admin`, Vite, TypeScript, Vitest tests), embedded in the binary from
   `internal/server/adminui`; the code typed in the login field is no longer cleared by the periodic refresh.
   `make ui`, `make ui-test`, `make ui-dev`.
+- Kimi login region: `kimi_region` / `AGENT_BRIDGE_KIMI_REGION`, `global` (kimi.ai) by default or `mainland-cn`
+  (kimi.com); the admin page and `make login-kimi` run `kimi login --region <region>`.
 - Neutral names visible to clients and operators: error code `cli_error`, field `cli_session_id`.
 - OpenAI-style keys (`sk-…`) are redacted from logs and errors.
 - One file per interface and per implementation; large files split by responsibility.

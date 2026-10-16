@@ -194,3 +194,17 @@ func TestParsers(t *testing.T) {
 		}
 	}
 }
+
+func TestKimiLoginRegion(t *testing.T) {
+	for region, want := range map[string]string{
+		config.KimiRegionGlobal: "login --region global",
+		config.KimiRegionChina:  "login --region mainland-cn",
+		"":                      "login",
+	} {
+		for _, c := range CLIs(&config.Config{KimiRegion: region}) {
+			if c.Name == config.BackendKimi && strings.Join(c.LoginArgs, " ") != want {
+				t.Errorf("region %q: %q", region, c.LoginArgs)
+			}
+		}
+	}
+}

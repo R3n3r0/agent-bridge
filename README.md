@@ -340,7 +340,7 @@ models become `bridge/default` (the default model of Kimi Code) and
 usage or cost.
 
 ```sh
-kimi login
+kimi login --region global   # kimi.ai; mainland-cn for kimi.com
 AGENT_BRIDGE_AUTH_MODE=subscription agent-bridge -backend kimi
 ```
 

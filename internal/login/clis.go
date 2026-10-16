@@ -36,10 +36,19 @@ func CLIs(cfg *config.Config) []CLI {
 			StatusArgs: []string{"login", "status"}, parseStatus: parseExitStatus,
 		},
 		{
-			Name: config.BackendKimi, Binary: cfg.KimiBinary, LoginArgs: []string{"login"},
+			Name: config.BackendKimi, Binary: cfg.KimiBinary, LoginArgs: kimiLoginArgs(cfg.KimiRegion),
 			StatusArgs: []string{"provider", "list"}, parseStatus: parseProviderList,
 		},
 	}
+}
+
+// kimiLoginArgs logs in on the region's site: kimi.ai for global,
+// kimi.com for mainland-cn. The CLI remembers the region with the login.
+func kimiLoginArgs(region string) []string {
+	if region == "" {
+		return []string{"login"}
+	}
+	return []string{"login", "--region", region}
 }
 
 // parseJSONStatus reads {"loggedIn": bool, "authMethod": "..."}.
