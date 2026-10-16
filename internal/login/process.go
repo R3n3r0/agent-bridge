@@ -17,7 +17,10 @@ import (
 const (
 	flowTimeout   = 20 * time.Minute
 	statusTimeout = 30 * time.Second
-	maxInput      = 4096
+	// statusTTL is how long a CLI's login state is reused; starting or
+	// ending a login invalidates it.
+	statusTTL = 30 * time.Second
+	maxInput  = 4096
 )
 
 // ProcessManager runs each login flow as a child process of the CLI.
@@ -28,8 +31,14 @@ type ProcessManager struct {
 	// wrap, if set, returns the command running args in a pseudo-terminal.
 	wrap func(args []string) []string
 
-	mu    sync.Mutex
-	flows map[string]*flow
+	mu     sync.Mutex
+	flows  map[string]*flow
+	cached map[string]cachedStatus
+}
+
+type cachedStatus struct {
+	status Status
+	at     time.Time
 }
 
 var _ Manager = (*ProcessManager)(nil)
@@ -48,7 +57,7 @@ type Options struct {
 
 // NewProcessManager returns a manager for the CLIs of opts.
 func NewProcessManager(opts Options) *ProcessManager {
-	m := &ProcessManager{clis: opts.CLIs, baseEnv: opts.BaseEnv, log: opts.Logger, flows: map[string]*flow{}}
+	m := &ProcessManager{clis: opts.CLIs, baseEnv: opts.BaseEnv, log: opts.Logger, flows: map[string]*flow{}, cached: map[string]cachedStatus{}}
 	if m.log == nil {
 		m.log = slog.Default()
 	}
@@ -107,13 +116,30 @@ func (m *ProcessManager) Statuses(ctx context.Context) []Status {
 }
 
 func (m *ProcessManager) status(ctx context.Context, c CLI) Status {
-	st := Status{CLI: c.Name, Binary: c.Binary}
 	m.mu.Lock()
+	var flow *FlowView
 	if f := m.flows[c.Name]; f != nil {
 		v := f.view()
-		st.Flow = &v
+		flow = &v
 	}
+	cached, ok := m.cached[c.Name]
 	m.mu.Unlock()
+	if ok && time.Since(cached.at) < statusTTL {
+		st := cached.status
+		st.Flow = flow
+		return st
+	}
+	st := m.probe(ctx, c)
+	m.mu.Lock()
+	m.cached[c.Name] = cachedStatus{status: st, at: time.Now()}
+	m.mu.Unlock()
+	st.Flow = flow
+	return st
+}
+
+// probe runs the CLI's status command.
+func (m *ProcessManager) probe(ctx context.Context, c CLI) Status {
+	st := Status{CLI: c.Name, Binary: c.Binary}
 	bin, err := exec.LookPath(c.Binary)
 	if err != nil {
 		st.Detail = "not installed"
@@ -150,11 +176,15 @@ func (m *ProcessManager) Start(name string) (FlowView, error) {
 	}
 	f, err := startFlow(args, m.env(c), c.AcceptsInput, flowTimeout, func(state string) {
 		m.log.Info("login flow finished", "cli", name, "state", state)
+		m.mu.Lock()
+		delete(m.cached, name)
+		m.mu.Unlock()
 	})
 	if err != nil {
 		return FlowView{}, err
 	}
 	m.flows[name] = f
+	delete(m.cached, name)
 	m.log.Info("login flow started", "cli", name)
 	return f.view(), nil
 }

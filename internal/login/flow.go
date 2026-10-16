@@ -83,7 +83,7 @@ func (f *flow) view() FlowView {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	out := cleanOutput(string(f.output))
-	return FlowView{State: f.state, Output: out, URLs: findURLs(out), StartedAt: f.started,
+	return FlowView{State: f.state, Output: out, URLs: findURLs(out), Codes: findCodes(out), StartedAt: f.started,
 		AcceptsInput: f.acceptsInput && f.state == StateRunning}
 }
 

@@ -39,9 +39,11 @@ type Status struct {
 
 // FlowView is a snapshot of a login flow.
 type FlowView struct {
-	State     string    `json:"state"`
-	Output    string    `json:"output"`
-	URLs      []string  `json:"urls"`
+	State  string   `json:"state"`
+	Output string   `json:"output"`
+	URLs   []string `json:"urls"`
+	// Codes are the one-time codes the CLI printed for the operator.
+	Codes     []string  `json:"codes"`
 	StartedAt time.Time `json:"started_at"`
 	// AcceptsInput reports whether the CLI may ask for a pasted code.
 	AcceptsInput bool `json:"accepts_input"`

@@ -69,7 +69,7 @@ Si attiva con `admin: true` o `AGENT_BRIDGE_ADMIN=1` (l'immagine la imposta).
 | Metodo e percorso | Effetto |
 | --- | --- |
 | `GET /admin` | La pagina (statica, senza dati) |
-| `GET /admin/api/logins` | Stato di ogni CLI e del suo login in corso o ultimo |
+| `GET /admin/api/logins` | Stato di ogni CLI (in cache per 30 secondi, aggiornato quando un login inizia o finisce) e del suo login in corso o ultimo, con i link e i codici monouso stampati |
 | `POST /admin/api/logins/{cli}` | Avvia il login di `claude`, `codex` o `kimi` (o restituisce quello in corso) |
 | `POST /admin/api/logins/{cli}/input` | Invia `{"text": "..."}` (una riga) al login in corso |
 | `DELETE /admin/api/logins/{cli}` | Annulla il login in corso |

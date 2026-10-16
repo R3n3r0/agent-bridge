@@ -55,6 +55,21 @@ func waitState(t *testing.T, m *ProcessManager, cli, state string) FlowView {
 	}
 }
 
+func TestStatusCache(t *testing.T) {
+	m := manager(t, "FAKE_LOGGED_IN=0")
+	first := m.Statuses(context.Background())
+	m.baseEnv = append(m.baseEnv, "FAKE_LOGGED_IN=1")
+	if again := m.Statuses(context.Background()); *again[1].LoggedIn != *first[1].LoggedIn {
+		t.Fatal("the state must be cached")
+	}
+	m.Start("codex")
+	m.Cancel("codex")
+	waitState(t, m, "codex", StateCanceled)
+	if st := m.Statuses(context.Background()); !*st[1].LoggedIn {
+		t.Fatal("a finished login must refresh the state")
+	}
+}
+
 func TestStatuses(t *testing.T) {
 	for _, logged := range []string{"0", "1"} {
 		m := manager(t, "FAKE_LOGGED_IN="+logged)
@@ -124,7 +139,7 @@ func TestDeviceFlowAndCancel(t *testing.T) {
 	}
 	time.Sleep(300 * time.Millisecond)
 	v := m.flows["codex"].view()
-	if v.AcceptsInput || len(v.URLs) != 1 || !strings.Contains(v.Output, "ABCD-1234") {
+	if v.AcceptsInput || len(v.URLs) != 1 || len(v.Codes) != 1 || v.Codes[0] != "ABCD-1234" {
 		t.Fatalf("view %+v", v)
 	}
 	start := time.Now()
@@ -169,6 +184,9 @@ func TestParsers(t *testing.T) {
 	}
 	if got := findURLs("see https://a.test/x. and (https://a.test/x) or http://b.test/y,"); len(got) != 2 || got[1] != "http://b.test/y" {
 		t.Fatalf("urls %q", got)
+	}
+	if got := findCodes("code Z3C8-E3Q7O, again Z3C8-E3Q7O; https://x.test/?user_code=C69K-JPGN abc-defg"); len(got) != 1 || got[0] != "Z3C8-E3Q7O" {
+		t.Fatalf("codes %q", got)
 	}
 	if w := scriptWrapper(); w != nil {
 		if got := w([]string{"/bin/cli", "it's"}); got[2] != `'/bin/cli' 'it'\''s'` {

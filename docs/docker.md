@@ -67,7 +67,7 @@ Enabled with `admin: true` or `AGENT_BRIDGE_ADMIN=1` (the image sets it).
 | Method and path | Effect |
 | --- | --- |
 | `GET /admin` | The page (static, no data) |
-| `GET /admin/api/logins` | State of every CLI and of its current or last login |
+| `GET /admin/api/logins` | State of every CLI (cached for 30 seconds, refreshed when a login starts or ends) and of its current or last login, with the links and one-time codes it printed |
 | `POST /admin/api/logins/{cli}` | Starts the login of `claude`, `codex` or `kimi` (or returns the running one) |
 | `POST /admin/api/logins/{cli}/input` | Sends `{"text": "..."}` (one line) to the running login |
 | `DELETE /admin/api/logins/{cli}` | Cancels the running login |
