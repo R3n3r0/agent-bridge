@@ -334,7 +334,7 @@ func TestToolChoice(t *testing.T) {
 		t.Fatal(err)
 	}
 	args := strings.Join(f.exec.calls[1].Args, " ")
-	if !strings.Contains(args, "you must call the tool mcp__functions__get_weather") && !strings.Contains(args, "must call the tool mcp__functions__get_weather") {
+	if !strings.Contains(args, `must call the tool "get_weather" of the "functions" MCP server`) {
 		t.Fatalf("args %s", args)
 	}
 	if !strings.Contains(args, "at most one tool") {

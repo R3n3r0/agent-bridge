@@ -2,7 +2,7 @@
 
 **English** · [Italiano](specification.it.md)
 
-Oct 15, 2026 · @Someone — **rev. 1.4**: OpenAI function calling (section 13), use from external orchestrators (section 13.8), images (section 15), generation parameters (section 16), configurable model prefix and GPL license (section 14)
+Oct 15, 2026 · @Someone — **rev. 1.7**: Docker image and logins from the admin page (section 19); rev. 1.6: Kimi Code CLI over ACP (section 18); rev. 1.5: CLI backends and the Codex CLI (section 17); rev. 1.4: OpenAI function calling (section 13), use from external orchestrators (section 13.8), images (section 15), generation parameters (section 16), configurable model prefix and GPL license (section 14)
 
 ## 1. Overview and goals
 
@@ -73,8 +73,8 @@ The code is organized in layers that communicate through interfaces (details in 
 | Layer | Package | Interfaces used | Implementations |
 | --- | --- | --- | --- |
 | HTTP | `server` | `turn.Service`, `stats.Reporter` | — |
-| Domain | `turn` | `session.Store`, `session.Locker`, `runner.Executor`, `runner.Limiter`, `stats.Recorder`, `tools.Broker` | default service |
-| Infrastructure | `session`, `runner`, `stats`, `tools` | — | `MemoryStore`, `FileStore`, `KeyLocker`, `CLIExecutor`, `FIFOLimiter`, `Collector`, `JSONLUsageLog`, `HTTPBroker` |
+| Domain | `turn` | `session.Store`, `session.Locker`, `runner.Backend`, `runner.Executor`, `runner.Limiter`, `stats.Recorder`, `tools.Broker` | default service |
+| Infrastructure | `session`, `runner`, `stats`, `tools` | — | `MemoryStore`, `FileStore`, `KeyLocker`, `StreamJSONBackend`, `CodexBackend`, `KimiBackend`, `CLIExecutor`, `FIFOLimiter`, `Collector`, `JSONLUsageLog`, `HTTPBroker` |
 
 The implementations are wired together in a single place (`cmd/agent-bridge/serve.go`).
 
@@ -193,7 +193,7 @@ OpenAI format: `{"error": {"message", "type", "code"}}`, with `type` and `code` 
 | 404 | `model_not_found` | Nonexistent agent or invalid `bridge/<model>` name |
 | 409 | `session_busy` | Only if `sessions.on_busy: "reject"` and the session is in use |
 | 429 | `queue_full` | Wait queue full or wait expired (section 7.5), with a `Retry-After` header |
-| 502 | `claude_code_error` | Process exited with an error, outcome other than `success`/`error_max_turns`, unparseable output |
+| 502 | `cli_error` | Process exited with an error, outcome other than `success`/`error_max_turns`, unparseable output |
 | 503 | `server_error` | Server shutdown during the turn |
 | 504 | `timeout` | The agent's `timeout_seconds` was exceeded |
 
@@ -207,7 +207,7 @@ Each (agent, session key) pair corresponds to one Claude Code session. If the cl
 
 The key is, in order: the `X-Session-Id` header, the `user` field, or a generated key `sess_` + 24 hex characters, returned in the `X-Session-Id` header. The internal key is `<agent>|<key>`, so the same key used with different agents produces distinct sessions.
 
-Each registry entry contains: `claude_session_id`, `agent`, `cwd`, `created_at`, `last_used_at`, `turns`. Configuration in `sessions`:
+Each registry entry contains: `cli_session_id`, `agent`, `cwd`, `created_at`, `last_used_at`, `turns`. Configuration in `sessions`:
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -357,7 +357,7 @@ Each turn produces a log line, an optional entry in the usage file and an update
 
 ### 9.1 Logs
 
-`log/slog` library, `text` (default) or `json` format. Fields of each end-of-turn line: `request_id`, `agent`, `model` (effective, from the `init` event), `session_key`, `claude_session_id`, `resumed`, `turns`, `duration_ms`, `queue_ms`, `cost_usd`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`, `outcome` (`success`, `max_turns`, `error`, `timeout`, `canceled`, `tool_calls`). The `tool_calls` outcome indicates a process closed on purpose after returning function calls (`stateless` mode); the tokens are those of the last message.
+`log/slog` library, `text` (default) or `json` format. Fields of each end-of-turn line: `request_id`, `agent`, `model` (effective, from the `init` event), `session_key`, `cli_session_id`, `resumed`, `turns`, `duration_ms`, `queue_ms`, `cost_usd`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`, `outcome` (`success`, `max_turns`, `error`, `timeout`, `canceled`, `tool_calls`). The `tool_calls` outcome indicates a process closed on purpose after returning function calls (`stateless` mode); the tokens are those of the last message.
 
 ### 9.2 Usage file
 
@@ -383,7 +383,7 @@ Go 1.22 or later, standard library only at runtime; external tools allowed only 
 cmd/agent-bridge/        main, subcommands serve | check-config | doctor | version | mcp-tools
 internal/config/         loading of file/env/flags, defaults, validation
 internal/turn/           domain service: session, prompt, queue, execution, turns waiting for functions
-internal/runner/         CLI arguments, environment, event parsing, Executor, Limiter
+internal/runner/         Backend (default CLI, Codex CLI, Kimi Code over ACP): arguments, environment, event parsing; Executor, Limiter
   proc_unix.go           process group and termination on Unix
   proc_windows.go        process tree termination on Windows
 internal/prompt/         prompt construction (section 6.4)
@@ -410,7 +410,7 @@ GoReleaser on `v*` tags: binaries for linux, darwin and windows on amd64 and arm
 
 The main documentation is in English (`README.md`, `docs/*.md`), with an Italian version of each document in `*.it.md` (`README.it.md`, `docs/*.it.md`). The README contains, in this order: what it does (with a declaration that it is an independent project), the two ways of using it (as a model and as an agent on the server) and the two kinds of tools, a quick start in three commands, use as a model from external orchestrators, function calling, agents on the server, conversations and sessions, development with a subscription and production with an API key, the "Permitted use" section (section 2), security (section 8), quick reference (examples, endpoints, headers, commands), known limitations, FAQ. Full configuration reference in `docs/configuration.md`.
 
-License: GNU GPL v3 or later (`LICENSE`). Open decisions for the repository owner: final repository name (it must not contain "Claude" or "Anthropic", section 2), official Docker image (`api` mode only).
+License: GNU GPL v3 or later (`LICENSE`). Open decisions for the repository owner: final repository name (it must not contain "Claude" or "Anthropic", section 2), publishing the Docker image (section 19) on a registry.
 
 ## 11. Tests and acceptance criteria
 
@@ -610,6 +610,9 @@ Recommended configuration for this scenario: `{"client_tools": {"mode": "statele
 | Images | Rejected (400) | Accepted as `image_url` parts (15) | Parity with OpenAI clients |
 | License | To be decided | GNU GPL v3 or later (10.4) | Owner's decision |
 | Generation parameters | All accepted and ignored | `reasoning_effort`, `response_format`, `max_tokens` mapped; `stop`, `n` emulated (16) | Use every option the CLI offers |
+| CLI | Only the default CLI | `runner.Backend` interface, default CLI, Codex CLI (17) and Kimi Code CLI over ACP (18) | Same API on top of any of these agents |
+| Upstream error code | `claude_code_error` | `cli_error` | Neutral with every backend |
+| Session id field in logs, usage file and registry | `claude_session_id` | `cli_session_id` | Neutral with every backend |
 
 ## 15. Images
 
@@ -641,10 +644,71 @@ The bridge drives the CLI and never calls the model API itself (section 2), so i
 | OpenAI parameter | Mapping | Notes |
 | --- | --- | --- |
 | `reasoning_effort` | `--effort <level>` | `none` and `minimal` → `low`; `low`, `medium`, `high` unchanged; `xhigh` and `max` accepted as an extension. Other values → 400. Available levels depend on the model |
-| `response_format` | `text`: nothing. `json_object`: `--json-schema '{"type":"object"}'`. `json_schema`: `--json-schema` with `json_schema.schema` (compact, at most 64 KB) | The answer is the result's `structured_output`, compact, as `content`. Subtype `error_max_structured_output_retries`, or success without `structured_output` → 502 `claude_code_error`. `json_schema.name` and `strict` are accepted; the CLI always validates |
+| `response_format` | `text`: nothing. `json_object`: `--json-schema '{"type":"object"}'`. `json_schema`: `--json-schema` with `json_schema.schema` (compact, at most 64 KB) | The answer is the result's `structured_output`, compact, as `content`. Subtype `error_max_structured_output_retries`, or success without `structured_output` → 502 `cli_error`. `json_schema.name` and `strict` are accepted; the CLI always validates |
 | `max_completion_tokens`, `max_tokens` | Env `CLAUDE_CODE_MAX_OUTPUT_TOKENS` for the process (replacing any inherited value); `max_completion_tokens` wins | Positive integers only. Limits every model response of the turn, not the turn's total; `finish_reason` is not `length` |
 | `stop` | String or array of up to 4 non-empty strings; the final text is cut before the first occurrence of any of them | Emulated after generation. Not applied to `response_format` JSON, to streaming progress texts or to function-call arguments |
 | `n` | 1-8 independent turns in parallel, choice `i` from turn `i` | Every choice gets a fresh session key (no resume) and stateless client functions (section 13.8). Usage, turns and cost are summed, duration is the longest. Streaming: role chunks for all indices first, then each choice's final chunks as it completes. The first error cancels the other choices and fails the request. A rejection by `Admit` releases the choices already admitted (`turn.Service.Release`) |
 | `temperature`, `top_p`, `seed`, `logprobs`, `top_logprobs`, `presence_penalty`, `frequency_penalty`, `logit_bias` | — | Accepted and ignored: no CLI equivalent |
 
 To verify on the real CLI (checklist 11.4): `--effort` levels per model, the `structured_output` field and failure subtype with `-p --output-format stream-json`, and `CLAUDE_CODE_MAX_OUTPUT_TOKENS`.
+
+## 17. CLI backends and the Codex CLI
+
+The `runner.Backend` interface isolates everything that depends on the CLI: building the invocation of a turn (`Prepare`: arguments, environment, stdin, temporary files), parsing its output (`NewParser`), recognizing a resumed session that no longer exists (`ResumeMissing`), the minimum version and whether usage is cumulative. The `backend` setting (`claude` by default, or `codex`; flag `-backend`, variable `AGENT_BRIDGE_BACKEND`) chooses the implementation at startup; HTTP API, sessions, queue, client functions, images and statistics do not change.
+
+| Aspect | `claude` (`StreamJSONBackend`) | `codex` (`CodexBackend`) |
+| --- | --- | --- |
+| Command | `-p --output-format stream-json` | `exec --json`, `exec resume --json <thread>` |
+| Settings | Flags | `-c key=value` overrides |
+| Chat-only | `--tools ""` | `sandbox_mode="read-only"`, built-in tool features off, web search disabled |
+| Tool permissions | `permission_mode`, `allowed_tools`, `disallowed_tools` | Agent `sandbox` field; `approval_policy="never"` |
+| MCP servers, client functions | `--mcp-config` files | The same files converted to `mcp_servers.*`, tools pre-approved |
+| Images | stream-json user message | Temporary files and `--image` |
+| Structured output | `--json-schema`, `structured_output` | `--output-schema`, final message parsed as JSON; `json_object` as an instruction |
+| Maximum output tokens | `CLAUDE_CODE_MAX_OUTPUT_TOKENS` | Not available, ignored |
+| Result event | `result` | Synthesized from `turn.completed` / `turn.failed` |
+| Usage | Per turn | Thread totals: the bridge stores them in the session (`cli_usage`) and returns the difference |
+| Cost | `total_cost_usd` | Not reported (0) |
+| Credentials removed in `subscription` | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` | `CODEX_API_KEY`, `CODEX_ACCESS_TOKEN`, `OPENAI_API_KEY` |
+| `api` mode requires | `ANTHROPIC_API_KEY` | `CODEX_API_KEY` |
+| Minimum version | `2.1.128` | `0.162.0` |
+
+The Codex mapping was verified against the real CLI (0.162.1) driven by a local fake of the Responses API: chat, resume, function calling through MCP, images, `--output-schema`, effort, replaced instructions, resume fallback and cumulative usage. User guide: `docs/codex.md`.
+
+## 18. Kimi Code CLI over ACP
+
+With `backend: "kimi"` the bridge runs `kimi acp` and is the client of an Agent Client Protocol session (JSON-RPC 2.0, one message per line on stdin and stdout). The CLI's print mode (`kimi -p`) is not used: it takes the prompt only as a command-line argument, approves every tool on its own and has no per-invocation MCP servers.
+
+To hold a dialogue on stdin, a backend's `Parser` can also implement `runner.Responder`: the executor then gives it the process stdin instead of writing a fixed prompt. `KimiBackend.Prepare` returns such a parser (`acpDialogue`) built for the turn.
+
+| Step | Message |
+| --- | --- |
+| Start | `initialize` (protocol version 1, no file system or terminal capabilities) |
+| Session | `session/new` {`cwd`, `mcpServers`, `additionalDirectories`} or `session/resume` {`sessionId`, `cwd`, `mcpServers`} |
+| Settings | `session/set_config_option` for `model` (error if unknown), `thinking` (optional: an error is only logged) and `mode` (when different from the current one) |
+| Prompt | `session/prompt` with a text block (agent system prompt in `<system_instructions>` on new sessions; JSON instruction for `response_format`; a leading `/` is escaped) and the image blocks |
+| Updates | `agent_message_chunk` collected; `tool_call` flushes the text as an intermediate text and logs the tool |
+| Agent requests | `session/request_permission` answered by policy (section in `docs/kimi.md`); any other request gets error -32601 |
+| End | The `session/prompt` response: `end_turn` with text → success, without text → error; `max_tokens`/`max_turn_requests` → `finish_reason: "length"`; `refusal`, `cancelled` → error; a JSON-RPC error → error. Then stdin is closed and the CLI exits |
+
+Other choices: `max_turns` → `KIMI_LOOP_MAX_STEPS_PER_TURN`; client function timeout → `KIMI_MCP_TOOL_TIMEOUT_MS`; `KIMI_DISABLE_TELEMETRY=1` and `KIMI_CODE_NO_AUTO_UPDATE=1` unless set; credentials removed in `subscription`: `KIMI_MODEL_API_KEY`, `KIMI_MODEL_NAME`, `KIMI_API_KEY`; `api` mode requires `KIMI_MODEL_NAME` and `KIMI_MODEL_API_KEY`; minimum version `2.2.0`. ACP reports no token usage or cost (0).
+
+Verified with the real Kimi Code CLI 2.2.0 against a local fake chat completions API: chat, resume and fallback, model and thinking selection, permission policy (refused and approved `Bash`), stateful and stateless function calling through MCP, images, structured output and `doctor -live`. User guide: `docs/kimi.md`.
+
+## 19. Docker image and logins from the admin page
+
+`Dockerfile` builds an image with the bridge and the three CLIs (`node` slim base, `script` from util-linux, non-root user `bridge`, volumes `/home/bridge`, `/work`, `/data`); `compose.yaml` runs one service per backend on ports 8787-8789 of the host's loopback, sharing the home volume. Inside the container the bridge listens on all interfaces (`AGENT_BRIDGE_ALLOW_REMOTE=1`), so `AGENT_BRIDGE_API_KEY` is required.
+
+The `login` package (`login.Manager`, implementation `ProcessManager`) runs each CLI's official login command for the admin page (`admin: true`):
+
+| CLI | Login | Status |
+| --- | --- | --- |
+| claude | `auth login` in a pseudo-terminal (`script -qfec`), the operator pastes the code back | `auth status --json` |
+| codex | `login --device-auth` | `login status` (exit code) |
+| kimi | `login` (device code) | `provider list` |
+
+At most one flow per CLI; 20 minute limit; output kept to the last 64 KB, cleaned of terminal sequences, with its links extracted; the process tree is killed on cancel. The child environment is the server's minus `AGENT_BRIDGE_*` and the upstream API credentials, so the status reflects the stored login. The bridge relays only what the CLI prints and what the operator types; it never reads the credential files, and logs only the start and outcome of a flow.
+
+Endpoints: `GET /admin` (static page), `GET /admin/api/logins`, `POST /admin/api/logins/{cli}`, `POST /admin/api/logins/{cli}/input`, `DELETE /admin/api/logins/{cli}`. They require the Bearer key when set; state-changing calls also require `X-Agent-Bridge-Admin: 1` against cross-site requests.
+
+Verified with the image built from the repository: the three login flows started from the admin API inside the container (link and code shown, pasted code delivered to the CLI, cancel with no leftover process) and `doctor` inside the container. User guide: `docs/docker.md`.

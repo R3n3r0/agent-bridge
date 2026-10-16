@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 	"sync"
@@ -30,9 +31,13 @@ func (CLIExecutor) Run(ctx context.Context, req Request) (*Outcome, error) {
 		defer cancel()
 	}
 
+	parser := req.Parser
+	if parser == nil {
+		parser = streamJSONParser{}
+	}
 	var mu sync.Mutex
 	handle := func(line []byte) {
-		for _, ev := range ParseLine(line) {
+		for _, ev := range parser.Parse(line) {
 			mu.Lock()
 			switch ev.Kind {
 			case KindInit:
@@ -57,7 +62,17 @@ func (CLIExecutor) Run(ctx context.Context, req Request) (*Outcome, error) {
 	cmd := exec.CommandContext(runCtx, req.Binary, req.Args...)
 	cmd.Dir = req.Dir
 	cmd.Env = req.Env
-	cmd.Stdin = strings.NewReader(req.Stdin)
+	responder, _ := parser.(Responder)
+	var stdin io.WriteCloser
+	if responder != nil {
+		p, err := cmd.StdinPipe()
+		if err != nil {
+			return out, err
+		}
+		stdin = p
+	} else {
+		cmd.Stdin = strings.NewReader(req.Stdin)
+	}
 	lw := &lineWriter{max: MaxLineBytes, fn: handle}
 	cmd.Stdout = lw
 	stderr := &tailBuffer{max: stderrKeep}
@@ -69,6 +84,11 @@ func (CLIExecutor) Run(ctx context.Context, req Request) (*Outcome, error) {
 	err := cmd.Start()
 	if err != nil {
 		return out, fmt.Errorf("start %s: %w", req.Binary, err)
+	}
+	if responder != nil {
+		if err := responder.Start(stdin); err != nil {
+			stdin.Close()
+		}
 	}
 	err = cmd.Wait()
 	if runCtx.Err() != nil {

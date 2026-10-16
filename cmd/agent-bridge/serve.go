@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/r3n3r0/agent-bridge/internal/config"
+	"github.com/r3n3r0/agent-bridge/internal/login"
 	"github.com/r3n3r0/agent-bridge/internal/media"
 	"github.com/r3n3r0/agent-bridge/internal/redact"
 	"github.com/r3n3r0/agent-bridge/internal/runner"
@@ -35,6 +37,11 @@ func serve(args []string, stderr io.Writer) int {
 		return 1
 	}
 	redact.AddSecret(cfg.APIKey)
+	for _, k := range config.CredentialEnv(cfg.Backend) {
+		if strings.Contains(k, "KEY") || strings.Contains(k, "TOKEN") {
+			redact.AddSecret(os.Getenv(k))
+		}
+	}
 	log := newLogger(stderr, cfg.LogFormat, cfg.LogLevel)
 
 	if err := cfg.ValidateAuth(os.Getenv); err != nil {
@@ -45,15 +52,20 @@ func serve(args []string, stderr io.Writer) int {
 		log.Error("refusing to start", "error", err)
 		return 1
 	}
-	log.Info("starting agent-bridge", "auth_mode", string(cfg.AuthMode), "listen", cfg.Listen,
+	backend, err := runner.NewBackend(cfg.Backend)
+	if err != nil {
+		log.Error("refusing to start", "error", err)
+		return 1
+	}
+	log.Info("starting agent-bridge", "backend", backend.Name(), "auth_mode", string(cfg.AuthMode), "listen", cfg.Listen,
 		"version", version.Version, "config", cfg.Path, "agents", len(cfg.Agents))
 	if !config.IsLoopback(cfg.Listen) && cfg.AuthMode == config.AuthSubscription {
 		log.Warn("remote access in subscription mode: this instance must serve only the account holder " +
 			"(for example from their own laptop over a personal VPN), never other users")
 	}
 	for _, name := range cfg.AgentNames() {
-		if cfg.Agents[name].PermissionMode == config.PermissionBypass {
-			log.Warn("agent runs with bypassPermissions: every tool call is executed without confirmation", "agent", name)
+		if a := cfg.Agents[name]; a.PermissionMode == config.PermissionBypass || a.Sandbox == config.CodexSandboxFull {
+			log.Warn("agent runs without permission checks or sandbox: every tool call is executed as is", "agent", name)
 		}
 	}
 
@@ -128,6 +140,7 @@ func serve(args []string, stderr io.Writer) int {
 		Images:   images,
 		Logger:   log,
 	}, turn.Settings{
+		Backend:         backend,
 		Binary:          cfg.Binary,
 		AuthMode:        cfg.AuthMode,
 		OnBusy:          cfg.Sessions.OnBusy,
@@ -138,11 +151,17 @@ func serve(args []string, stderr io.Writer) int {
 		ToolBatchWindow: time.Duration(cfg.ClientTools.BatchWindowMs) * time.Millisecond,
 		MaxImages:       cfg.Images.MaxCount,
 	})
+	var logins login.Manager
+	if cfg.Admin {
+		logins = login.NewProcessManager(login.Options{CLIs: login.CLIs(cfg), BaseEnv: os.Environ(), Logger: log})
+		log.Info("admin page enabled", "path", "/admin")
+	}
 	srv := server.New(server.Options{
 		Config: cfg,
 		Turns:  turns,
 		Stats:  collector,
 		Logger: log,
+		Logins: logins,
 	})
 	httpSrv := &http.Server{
 		Handler:           srv.Handler(),

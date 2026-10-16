@@ -49,6 +49,9 @@ func TestHandlerRedactsLogs(t *testing.T) {
 		slog.Group("nested", "v", "sk-ant-nested"),
 		"n", 42)
 	out := buf.String()
+	if got := String("Incorrect API key provided: sk-proj-Abc123_xyz-9 and sk-test-123456"); strings.Contains(got, "sk-") {
+		t.Fatalf("OpenAI keys not redacted: %s", got)
+	}
 	for _, leak := range []string{"sk-ant-", "proxy-key-xyz"} {
 		if strings.Contains(out, leak) {
 			t.Fatalf("log leaks %q: %s", leak, out)

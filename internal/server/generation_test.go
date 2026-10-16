@@ -24,7 +24,7 @@ func genRequest(t *testing.T, body string) *chatRequest {
 func TestParseGeneration(t *testing.T) {
 	g, err := parseGeneration(genRequest(t, `{"n":3,"stop":["a","bb"],"max_tokens":10,"max_completion_tokens":20,
 		"reasoning_effort":"minimal","response_format":{"type":"json_schema","json_schema":{"name":"x","schema":{ "type" : "object" }}}}`))
-	if err != nil || g.n != 3 || len(g.stop) != 2 || g.maxTokens != 20 || g.effort != "low" || g.jsonSchema != `{"type":"object"}` {
+	if err != nil || g.n != 3 || len(g.stop) != 2 || g.maxTokens != 20 || g.effort != "minimal" || g.jsonSchema != `{"type":"object"}` {
 		t.Fatalf("got %+v %v", g, err)
 	}
 	g, _ = parseGeneration(genRequest(t, `{"stop":"END","max_tokens":5,"reasoning_effort":"xhigh","response_format":{"type":"json_object"}}`))

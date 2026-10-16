@@ -28,3 +28,19 @@ First complete implementation of the specification ([docs/specification.md](docs
 - Neutral, configurable prefix for zero-config models (`builtin_prefix`, default `bridge/`).
 - Documentation in English, with an Italian version of every document (`*.it.md`).
 - Licensed under the GNU GPL v3 or later.
+- Codex CLI backend (`backend: "codex"`, [docs/codex.md](docs/codex.md)): same API on top of
+  `codex exec --json`, with sessions, function calling through MCP, images, structured output, reasoning
+  effort, sandboxed agents and per-turn usage from the thread totals. `runner.Backend` interface for CLI
+  dialects.
+- Kimi Code CLI backend (`backend: "kimi"`, [docs/kimi.md](docs/kimi.md)): the bridge drives `kimi acp` as an
+  Agent Client Protocol client, with sessions, function calling through per-session MCP servers, images,
+  model and thinking selection, modes and permission requests answered from `allowed_tools` and
+  `disallowed_tools`. `runner.Responder` lets a backend hold a dialogue on stdin.
+- Docker image with the bridge and the three CLIs, `compose.yaml` with one service per backend sharing the
+  logins ([docs/docker.md](docs/docker.md)); admin page (`admin: true`, `/admin`) that runs the CLIs'
+  official login flows and shows their links and codes, without reading the credentials.
+  `AGENT_BRIDGE_ALLOW_REMOTE` and `AGENT_BRIDGE_ADMIN` environment variables. `Makefile` to run it locally
+  (`make up`, `make admin`, `make smoke`).
+- Neutral names visible to clients and operators: error code `cli_error`, field `cli_session_id`.
+- OpenAI-style keys (`sk-…`) are redacted from logs and errors.
+- One file per interface and per implementation; large files split by responsibility.

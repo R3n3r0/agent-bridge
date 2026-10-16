@@ -42,6 +42,8 @@ type Deps struct {
 
 // Settings configure the default Service.
 type Settings struct {
+	// Backend is the CLI dialect; nil means runner.StreamJSONBackend.
+	Backend  runner.Backend
 	Binary   string
 	AuthMode config.AuthMode
 	OnBusy   string
@@ -77,6 +79,9 @@ var _ Service = (*service)(nil)
 func NewService(d Deps, s Settings) Service {
 	if d.Logger == nil {
 		d.Logger = slog.Default()
+	}
+	if s.Backend == nil {
+		s.Backend = runner.StreamJSONBackend{}
 	}
 	if s.HardStop == nil {
 		s.HardStop = context.Background()

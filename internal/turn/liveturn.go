@@ -118,8 +118,8 @@ func (lt *liveTurn) run(release func(), entry session.Entry, resumed bool, in in
 		resumeID = entry.CLISessionID
 	}
 	out, runErr := lt.exec(in, resumeID)
-	if resumed && resumeMissing(out, runErr) {
-		lt.log.Warn("stored session no longer exists, retrying once as a new session", "claude_session_id", entry.CLISessionID)
+	if resumed && s.resumeMissing(out, runErr) {
+		lt.log.Warn("stored session no longer exists, retrying once as a new session", "cli_session_id", entry.CLISessionID)
 		lt.storeErr(s.Store.Delete(key))
 		resumed = false
 		entry = session.Entry{Agent: req.Agent.Name, Cwd: req.Cwd, CreatedAt: time.Now().UTC(), InstructionsHash: hash}
@@ -128,8 +128,12 @@ func (lt *liveTurn) run(release func(), entry session.Entry, resumed bool, in in
 		}
 	}
 
+	lt.turnUsage(out, &entry, resumed)
 	lt.rec.Resumed = resumed
 	lt.rec.Model = out.Model
+	if lt.rec.Model == "" {
+		lt.rec.Model = req.Spec.Model
+	}
 	lt.rec.CLISessionID = out.SessionID
 	lt.mu.Lock()
 	stopped, lastUsage := lt.stoppedForCalls, lt.lastUsage
@@ -217,7 +221,7 @@ func (lt *liveTurn) finish(outcome string, e *Error) *Error {
 		lt.log.Warn("usage log write failed", "error", err)
 	}
 	attrs := []any{
-		"model", rec.Model, "claude_session_id", rec.CLISessionID, "resumed", rec.Resumed,
+		"model", rec.Model, "cli_session_id", rec.CLISessionID, "resumed", rec.Resumed,
 		"turns", rec.Turns, "duration_ms", rec.DurationMs, "queue_ms", rec.QueueMs, "cost_usd", rec.CostUSD,
 		"input_tokens", rec.InputTokens, "output_tokens", rec.OutputTokens,
 		"cache_read_tokens", rec.CacheReadTokens, "cache_creation_tokens", rec.CacheCreationTokens,

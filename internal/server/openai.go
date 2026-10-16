@@ -156,11 +156,12 @@ const (
 	errInvalidRequest   = "invalid_request_error"
 	errUnsupported      = "unsupported_content"
 	errAuthentication   = "authentication_error"
+	errPermission       = "permission_error"
 	errOverride         = "override_not_allowed"
 	errModelNotFound    = "model_not_found"
 	errSessionBusy      = "session_busy"
 	errQueueFull        = "queue_full"
-	errUpstream         = "claude_code_error"
+	errUpstream         = "cli_error"
 	errTimeout          = "timeout"
 	errServerError      = "server_error"
 	retryAfterQueueFull = 30

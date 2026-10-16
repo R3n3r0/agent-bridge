@@ -7,6 +7,11 @@
 ufficiale di Claude Code in modalità headless
 (`claude -p --output-format stream-json`).
 
+Può anche eseguire al suo posto la CLI Codex di OpenAI (`codex exec --json`)
+o la CLI Kimi Code (`kimi acp`, tramite l'Agent Client Protocol), con la
+stessa API: vedi il [backend Codex](docs/codex.it.md) e il
+[backend Kimi](docs/kimi.it.md).
+
 Qualsiasi client o framework che parla OpenAI può usarlo cambiando solo
 `base_url`, `api_key` e `model`: chat, streaming, function calling (tool
 calling) e immagini in ingresso funzionano con gli SDK ufficiali senza
@@ -18,7 +23,9 @@ e framework che accettano un `base_url` OpenAI personalizzato (per esempio
 LangChain, LlamaIndex, CrewAI, AutoGen o gli SDK OpenAI per Python, Node e Go)
 di usare Claude Code in modalità headless come modello chat completions o
 come agente di programmazione, con tool calling, server MCP, sessioni,
-streaming (SSE) e un modello per ogni agente.
+streaming (SSE) e un modello per ogni agente. Lo stesso server è un'API
+compatibile OpenAI, proxy e gateway per la CLI Codex di OpenAI e per la CLI
+Kimi Code (Moonshot AI, Kimi K2), e un client ACP (Agent Client Protocol).
 
 > **Progetto indipendente.** agent-bridge non è sviluppato, approvato né
 > supportato da Anthropic. Esegue il binario ufficiale `claude` installato
@@ -29,6 +36,9 @@ streaming (SSE) e un modello per ogni agente.
 - Stessa build per sviluppo (login con abbonamento) e produzione (API key).
 - Function calling OpenAI (`tools`, `tool_calls`), anche in streaming.
 - Immagini in ingresso (parti `image_url`: URL `data:` e `http(s)`).
+- Tre backend CLI: quello predefinito, la CLI Codex di OpenAI
+  (`backend: "codex"`, vedi [docs/codex.it.md](docs/codex.it.md)) e la CLI
+  Kimi Code (`backend: "kimi"`, vedi [docs/kimi.it.md](docs/kimi.it.md)).
 - Software libero, con licenza GNU GPL v3 o successiva.
 
 ## Due modi di usarlo
@@ -282,6 +292,69 @@ Ogni turno registra token e costo (log, file `usage_log` opzionale, `/stats`,
 calcolata dalla CLI ai prezzi API, non un addebito**: serve a prevedere quanto
 costerà la produzione con API key.
 
+## Docker
+
+`compose.yaml` esegue il bridge con tutte e tre le CLI, un servizio per
+backend (porte 8787, 8788 e 8789 sul loopback dell'host), con un unico volume
+home per i login delle CLI:
+
+```sh
+make up       # crea .env con una chiave API casuale, costruisce, avvia, stampa gli indirizzi
+make admin    # apre la pagina di login
+make smoke    # una richiesta a ogni servizio
+```
+
+`make help` elenca gli altri comandi (log, doctor, login da terminale,
+aggiornamento, reset). Senza make: `cp .env.example .env`, imposta
+`AGENT_BRIDGE_API_KEY`, `docker compose up -d`.
+
+Poi fai il login nelle CLI dalla pagina di amministrazione,
+`http://127.0.0.1:8787/admin`: esegue sul server il flusso di login ufficiale
+di ogni CLI e ne mostra link e codice monouso (o un campo dove incollare il
+codice). Le credenziali restano alle CLI; il bridge non le legge mai.
+Dettagli: [docs/docker.it.md](docs/docker.it.md).
+
+## Backend Codex
+
+Con `backend: "codex"` (oppure `-backend codex`, `AGENT_BRIDGE_BACKEND=codex`)
+ogni turno esegue `codex exec --json` al posto della CLI predefinita. API,
+sessioni, function calling, immagini, output strutturato e sforzo di
+ragionamento funzionano allo stesso modo; i modelli integrati diventano
+`bridge/default` (il modello configurato in Codex) e `bridge/<modello>`; gli
+agenti con strumenti usano una `sandbox` (`read-only`, `workspace-write`,
+`danger-full-access`) al posto di `permission_mode` e `allowed_tools`.
+Autenticazione: `codex login` in modalità `subscription`, `CODEX_API_KEY` in
+modalità `api`.
+
+```sh
+codex login
+AGENT_BRIDGE_AUTH_MODE=subscription agent-bridge -backend codex
+```
+
+Mappatura completa, campi degli agenti e differenze:
+[docs/codex.it.md](docs/codex.it.md).
+
+## Backend Kimi
+
+Con `backend: "kimi"` (oppure `-backend kimi`, `AGENT_BRIDGE_BACKEND=kimi`)
+ogni turno esegue `kimi acp`, la CLI Kimi Code come agente Agent Client
+Protocol, con il bridge come client ACP. API, sessioni, function calling,
+immagini, output strutturato e sforzo di ragionamento funzionano allo stesso
+modo; i modelli integrati diventano `bridge/default` (il modello predefinito
+di Kimi Code) e `bridge/<modello>`; il bridge risponde alle richieste di
+permesso della CLI in base a `allowed_tools`, `disallowed_tools` e
+`permission_mode` (`default`, `plan`, `auto`, `yolo`). Autenticazione:
+`kimi login` in modalità `subscription`, `KIMI_MODEL_NAME` e
+`KIMI_MODEL_API_KEY` in modalità `api`. ACP non riporta consumi né costi.
+
+```sh
+kimi login
+AGENT_BRIDGE_AUTH_MODE=subscription agent-bridge -backend kimi
+```
+
+Mappatura completa, campi degli agenti e differenze:
+[docs/kimi.it.md](docs/kimi.it.md).
+
 ## Uso consentito
 
 agent-bridge è uno strumento: chi lo usa resta responsabile del rispetto dei
@@ -376,11 +449,16 @@ Header di richiesta:
 Header di risposta: `X-Session-Id`, `X-Request-Id` e, nelle risposte non stream,
 `X-Agent-Bridge-Turns`, `X-Agent-Bridge-Cost-USD`, `X-Agent-Bridge-Duration-Ms`.
 
+Pagina di amministrazione (con `admin: true` o `AGENT_BRIDGE_ADMIN=1`):
+`GET /admin` e `/admin/api/logins` per il login nelle CLI
+([docs/docker.it.md](docs/docker.it.md)).
+
 Comandi: `agent-bridge serve` (default), `check-config`, `doctor [-live]`,
 `version`; `mcp-tools` è interno, avviato dalla CLI per le funzioni del client.
 `doctor` controlla la CLI e la sua versione, la coerenza della modalità di
 autenticazione e i permessi delle cartelle; con `-live` esegue un turno di
-prova su Haiku.
+prova su Haiku (con i backend Codex e Kimi: il modello configurato nella CLI,
+e per Codex `codex login status`).
 
 ## Limiti noti
 

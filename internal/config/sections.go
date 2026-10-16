@@ -78,6 +78,7 @@ type AgentFile struct {
 	DisallowedTools  []string `json:"disallowed_tools"`
 	ToolsEnabled     *bool    `json:"tools_enabled"`
 	PermissionMode   string   `json:"permission_mode"`
+	Sandbox          string   `json:"sandbox"`
 	MaxTurns         *int     `json:"max_turns"`
 	Cwd              string   `json:"cwd"`
 	AddDirs          []string `json:"add_dirs"`
@@ -96,6 +97,7 @@ type Agent struct {
 	DisallowedTools  []string
 	ToolsEnabled     bool
 	PermissionMode   string
+	Sandbox          string
 	MaxTurns         int
 	Cwd              string
 	AddDirs          []string

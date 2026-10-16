@@ -26,6 +26,8 @@ const (
 	EnvListen      = "AGENT_BRIDGE_LISTEN"
 	EnvLogFormat   = "AGENT_BRIDGE_LOG_FORMAT"
 	EnvLogLevel    = "AGENT_BRIDGE_LOG_LEVEL"
+	EnvAdmin       = "AGENT_BRIDGE_ADMIN"
+	EnvAllowRemote = "AGENT_BRIDGE_ALLOW_REMOTE"
 	EnvUpstreamKey = "ANTHROPIC_API_KEY"
 	EnvUpstreamTok = "ANTHROPIC_AUTH_TOKEN"
 )
@@ -80,7 +82,10 @@ var agentNameRe = regexp.MustCompile(`^[a-zA-Z0-9._/-]+$`)
 type Config struct {
 	Listen                 string               `json:"listen"`
 	AllowRemote            bool                 `json:"allow_remote"`
+	Backend                string               `json:"backend"`
 	Binary                 string               `json:"claude_binary"`
+	CodexBinary            string               `json:"codex_binary"`
+	KimiBinary             string               `json:"kimi_binary"`
 	MaxConcurrent          int                  `json:"max_concurrent"`
 	MaxQueue               int                  `json:"max_queue"`
 	QueueTimeoutSeconds    int                  `json:"queue_timeout_seconds"`
@@ -88,6 +93,7 @@ type Config struct {
 	StreamProgress         string               `json:"stream_progress"`
 	UsageLog               string               `json:"usage_log"`
 	Metrics                bool                 `json:"metrics"`
+	Admin                  bool                 `json:"admin"`
 	CORSOrigins            []string             `json:"cors_origins"`
 	AllowBypassPermissions bool                 `json:"allow_bypass_permissions"`
 	BuiltinModels          bool                 `json:"builtin_models"`
@@ -111,6 +117,9 @@ type Config struct {
 	Path string `json:"-"`
 	// Agents holds the resolved agents, including built-in models.
 	Agents map[string]*Agent `json:"-"`
+	// DefaultCLIBinary is the binary of the default CLI, kept when Binary is
+	// the binary of another backend.
+	DefaultCLIBinary string `json:"-"`
 	// ScratchDir is the working directory of chat-only agents without cwd.
 	ScratchDir string `json:"-"`
 }

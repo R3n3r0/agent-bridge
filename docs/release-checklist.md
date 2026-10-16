@@ -53,6 +53,38 @@ Environment without `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`, logged in wit
 - [ ] Image close to 5 MB: accepted (stdin limit with structured input).
 - [ ] Second turn with the same `X-Session-Id` and a new image: `--resume` with structured input works.
 
+## Codex backend
+
+With `backend: "codex"`, the codex CLI at version `0.162.0` (`runner.CodexMinVersion`) and the latest one, logged in with `codex login`.
+
+- [ ] `agent-bridge doctor -live -backend codex` exits with code 0 (`codex login status` ok).
+- [ ] `bridge/default` and `bridge/<model>`: 200, `usage` populated; second turn with the same `X-Session-Id` remembers the first and reports only that turn's usage.
+- [ ] Chat-only model asked to run a command: no command executed (`debug` log shows no tool use).
+- [ ] Agent with `sandbox: workspace-write` that edits a file in a test repository: change present on disk.
+- [ ] Function calling loop with `examples/python/tools.py`, `stateful` and `stateless`.
+- [ ] Image: the answer describes it; `json_schema` with a strict schema: valid JSON; `reasoning_effort: "high"` accepted.
+- [ ] `api` mode with `CODEX_API_KEY`: same requests work.
+
+## Kimi backend
+
+With `backend: "kimi"`, the Kimi Code CLI at version `2.2.0` (`runner.KimiMinVersion`) and the latest one, logged in with `kimi login`.
+
+- [ ] `agent-bridge doctor -live -backend kimi` exits with code 0.
+- [ ] `bridge/default` and `bridge/<model>`: 200; second turn with the same `X-Session-Id` remembers the first.
+- [ ] Chat-only model asked to run a command: the permission request is refused (`debug` log `refused Bash`).
+- [ ] Agent with `allowed_tools: ["Bash"]` that creates a file: approved and present on disk.
+- [ ] Function calling loop with `examples/python/tools.py`, `stateful` and `stateless`.
+- [ ] Image described; `json_schema`: valid JSON; `reasoning_effort: "high"` sets the thinking level.
+- [ ] `api` mode with `KIMI_MODEL_NAME` and `KIMI_MODEL_API_KEY`: same requests work.
+
+## Docker
+
+- [ ] `docker compose build` and `docker compose up -d` with `.env` from `.env.example`: three services running.
+- [ ] `http://127.0.0.1:8787/admin` with the API key: the three CLIs installed and not logged in.
+- [ ] Login of each CLI from the page with a real account; the state becomes "logged in" and survives `docker compose down` and `up` (volume `home`).
+- [ ] A request to each service (`8787`, `8788`, `8789`) answers.
+- [ ] `docker compose exec codex agent-bridge doctor -live` exits with code 0.
+
 ## `api` mode
 
 `AGENT_BRIDGE_AUTH_MODE=api` and `ANTHROPIC_API_KEY` set.

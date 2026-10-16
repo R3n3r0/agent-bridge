@@ -14,8 +14,27 @@ func (c *Config) resolve() error {
 	if c.Listen == "" {
 		add("listen: must not be empty")
 	}
-	if c.Binary == "" {
-		add("claude_binary: must not be empty")
+	c.DefaultCLIBinary = c.Binary
+	switch c.Backend {
+	case BackendDefault:
+		if c.Binary == "" {
+			add("claude_binary: must not be empty")
+		}
+	case BackendCodex:
+		if c.CodexBinary == "" {
+			add("codex_binary: must not be empty")
+		}
+		if c.Defaults.MaxTurns > 0 {
+			add("defaults.max_turns: is not supported by the codex backend")
+		}
+		c.Binary = c.CodexBinary
+	case BackendKimi:
+		if c.KimiBinary == "" {
+			add("kimi_binary: must not be empty")
+		}
+		c.Binary = c.KimiBinary
+	default:
+		add("backend: must be claude, codex or kimi, got %q", c.Backend)
 	}
 	if c.MaxConcurrent < 1 {
 		add("max_concurrent: must be at least 1, got %d", c.MaxConcurrent)
@@ -102,7 +121,7 @@ func (c *Config) resolve() error {
 		}
 	}
 	if c.BuiltinModels {
-		for _, model := range BuiltinAliases {
+		for _, model := range c.BuiltinNames() {
 			name := c.BuiltinPrefix + model
 			c.Agents[name] = c.builtinAgent(name, model)
 		}

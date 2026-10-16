@@ -58,7 +58,7 @@ func toolInstructions(req *Request) string {
 	case ToolChoiceRequired:
 		out = append(out, fmt.Sprintf("Before answering you must call at least one tool of the %q MCP server.", server))
 	case ToolChoiceFunction:
-		out = append(out, fmt.Sprintf("Before answering you must call the tool %s%s.", tools.ToolPrefix, req.ToolChoice.Function))
+		out = append(out, fmt.Sprintf("Before answering you must call the tool %q of the %q MCP server.", req.ToolChoice.Function, server))
 	}
 	if !req.ParallelToolCalls {
 		out = append(out, fmt.Sprintf("Call at most one tool of the %q MCP server at a time.", server))
