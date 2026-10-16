@@ -67,6 +67,9 @@ try { key = sessionStorage.getItem("ab-key") || ""; } catch (e) {}
 $("#key").value = key;
 let timer = null, seq = 0;
 const openDetails = new Set();
+// The page is rebuilt on every refresh: what the operator is typing is kept
+// here, per CLI, so a refresh never clears it.
+const drafts = {}, sent = {};
 
 async function api(method, path, body) {
   const h = { "X-Agent-Bridge-Admin": "1" };
@@ -133,12 +136,27 @@ function flowView(c) {
       const inp = el("input");
       inp.placeholder = "Code shown after signing in";
       inp.autocomplete = "off";
+      inp.spellcheck = false;
+      inp.dataset.cli = c.cli;
+      inp.value = drafts[c.cli] || "";
+      inp.oninput = () => { drafts[c.cli] = inp.value; };
       const send = el("button", "primary", "Send code");
-      const submit = () => inp.value.trim() && act(() => api("POST", "/admin/api/logins/" + c.cli + "/input", { text: inp.value.trim() }));
+      const submit = async () => {
+        const text = inp.value.trim();
+        if (!text) return;
+        send.disabled = true;
+        await act(async () => {
+          await api("POST", "/admin/api/logins/" + c.cli + "/input", { text });
+          delete drafts[c.cli];
+          sent[c.cli] = f.started_at;
+        });
+      };
       send.onclick = submit;
       inp.onkeydown = (e) => { if (e.key === "Enter") submit(); };
       row.append(inp, send);
-      steps.append(step("Paste the code the sign-in page gives you", row));
+      const content = [row];
+      if (sent[c.cli] === f.started_at) content.push(el("div", "hint", "Code sent: waiting for the CLI to confirm…"));
+      steps.append(step("Paste the code the sign-in page gives you", ...content));
     }
     steps.append(step("Wait here: the state updates by itself", el("div", "hint", "Started " + new Date(f.started_at).toLocaleTimeString())));
     box.append(steps);
@@ -160,6 +178,10 @@ function flowView(c) {
 
 function render(data) {
   const root = $("#clis");
+  // Keep the focus and the cursor of a code field across the rebuild.
+  const active = document.activeElement;
+  const focus = active && active.dataset && active.dataset.cli
+    ? { cli: active.dataset.cli, start: active.selectionStart, end: active.selectionEnd } : null;
   root.textContent = "";
   let running = false;
   for (const c of data.clis) {
@@ -179,6 +201,13 @@ function render(data) {
     if (c.detail && c.detail.toLowerCase().replace(/\.$/, "") !== badge(c).textContent) card.append(el("div", "detail", c.detail));
     if (c.flow) card.append(flowView(c));
     root.append(card);
+  }
+  if (focus) {
+    const inp = root.querySelector('input[data-cli="' + focus.cli + '"]');
+    if (inp) {
+      inp.focus();
+      try { inp.setSelectionRange(focus.start, focus.end); } catch (e) {}
+    }
   }
   clearTimeout(timer);
   if (running) timer = setTimeout(load, 2000);
