@@ -5,6 +5,8 @@
 #   docker compose up -d        # or: docker compose up -d codex
 #   open http://127.0.0.1:8787/admin to log in to the CLIs
 
+name: agent-bridge
+
 x-bridge: &bridge
   build: .
   image: agent-bridge:local

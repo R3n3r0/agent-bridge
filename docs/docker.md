@@ -10,6 +10,17 @@ admin page, which runs each CLI's official login flow.
 
 ## Quick start
 
+With make:
+
+```sh
+make up       # creates .env with a random API key, builds the image, starts the services
+make admin    # opens the login page and prints the API key
+make smoke    # sends "Reply with the single word OK." to every service
+make help     # logs, doctor, terminal logins, update, reset…
+```
+
+Without make:
+
 ```sh
 cp .env.example .env            # set AGENT_BRIDGE_API_KEY to a long random string
 mkdir -p workspace
@@ -101,6 +112,20 @@ Agents with tools should use `cwd` inside `/work`. With the Codex backend the
 container is already a sandbox: agents with tools may need
 `sandbox: "danger-full-access"` (with `allow_bypass_permissions: true`) if
 the CLI's own sandbox cannot start inside the container.
+
+## Make targets
+
+| Target | Effect |
+| --- | --- |
+| `make up` | Creates `.env` if missing (random key), starts the services (`SERVICES=codex` for one), prints addresses and key |
+| `make admin`, `make urls`, `make key` | Opens the login page; prints addresses; prints the key |
+| `make smoke` | One chat request to every service |
+| `make doctor` | `agent-bridge doctor` in every service |
+| `make logs`, `make ps`, `make restart`, `make down` | Usual Compose operations |
+| `make login-claude`, `make login-codex`, `make login-kimi` | Login from the terminal instead of the page |
+| `make shell` | Shell in a service |
+| `make update` | Rebuilds with the latest CLIs and restarts |
+| `make reset` | Deletes the volumes, logins included, after confirmation |
 
 ## Building
 

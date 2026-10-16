@@ -299,9 +299,14 @@ backend (porte 8787, 8788 e 8789 sul loopback dell'host), con un unico volume
 home per i login delle CLI:
 
 ```sh
-cp .env.example .env      # imposta AGENT_BRIDGE_API_KEY
-docker compose up -d
+make up       # crea .env con una chiave API casuale, costruisce, avvia, stampa gli indirizzi
+make admin    # apre la pagina di login
+make smoke    # una richiesta a ogni servizio
 ```
+
+`make help` elenca gli altri comandi (log, doctor, login da terminale,
+aggiornamento, reset). Senza make: `cp .env.example .env`, imposta
+`AGENT_BRIDGE_API_KEY`, `docker compose up -d`.
 
 Poi fai il login nelle CLI dalla pagina di amministrazione,
 `http://127.0.0.1:8787/admin`: esegue sul server il flusso di login ufficiale

@@ -39,7 +39,8 @@ First complete implementation of the specification ([docs/specification.md](docs
 - Docker image with the bridge and the three CLIs, `compose.yaml` with one service per backend sharing the
   logins ([docs/docker.md](docs/docker.md)); admin page (`admin: true`, `/admin`) that runs the CLIs'
   official login flows and shows their links and codes, without reading the credentials.
-  `AGENT_BRIDGE_ALLOW_REMOTE` and `AGENT_BRIDGE_ADMIN` environment variables.
+  `AGENT_BRIDGE_ALLOW_REMOTE` and `AGENT_BRIDGE_ADMIN` environment variables. `Makefile` to run it locally
+  (`make up`, `make admin`, `make smoke`).
 - Neutral names visible to clients and operators: error code `cli_error`, field `cli_session_id`.
 - OpenAI-style keys (`sk-…`) are redacted from logs and errors.
 - One file per interface and per implementation; large files split by responsibility.

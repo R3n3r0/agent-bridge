@@ -11,6 +11,17 @@ ufficiale di ogni CLI.
 
 ## Avvio rapido
 
+Con make:
+
+```sh
+make up       # crea .env con una chiave API casuale, costruisce l'immagine, avvia i servizi
+make admin    # apre la pagina di login e stampa la chiave API
+make smoke    # invia "Reply with the single word OK." a ogni servizio
+make help     # log, doctor, login da terminale, aggiornamento, reset…
+```
+
+Senza make:
+
 ```sh
 cp .env.example .env            # imposta AGENT_BRIDGE_API_KEY a una stringa lunga e casuale
 mkdir -p workspace
@@ -104,6 +115,20 @@ backend Codex il container è già una sandbox: gli agenti con strumenti
 potrebbero richiedere `sandbox: "danger-full-access"` (con
 `allow_bypass_permissions: true`) se la sandbox della CLI non riesce ad
 avviarsi dentro il container.
+
+## Comandi make
+
+| Comando | Effetto |
+| --- | --- |
+| `make up` | Crea `.env` se manca (chiave casuale), avvia i servizi (`SERVICES=codex` per uno solo), stampa indirizzi e chiave |
+| `make admin`, `make urls`, `make key` | Apre la pagina di login; stampa gli indirizzi; stampa la chiave |
+| `make smoke` | Una richiesta di chat a ogni servizio |
+| `make doctor` | `agent-bridge doctor` in ogni servizio |
+| `make logs`, `make ps`, `make restart`, `make down` | Le solite operazioni di Compose |
+| `make login-claude`, `make login-codex`, `make login-kimi` | Login da terminale invece che dalla pagina |
+| `make shell` | Shell in un servizio |
+| `make update` | Ricostruisce con le CLI più recenti e riavvia |
+| `make reset` | Cancella i volumi, login compresi, dopo conferma |
 
 ## Build
 

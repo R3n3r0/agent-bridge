@@ -294,9 +294,14 @@ API key will cost.
 for the CLIs' logins:
 
 ```sh
-cp .env.example .env      # set AGENT_BRIDGE_API_KEY
-docker compose up -d
+make up       # creates .env with a random API key, builds, starts, prints the addresses
+make admin    # opens the login page
+make smoke    # one request to every service
 ```
+
+`make help` lists the other targets (logs, doctor, terminal logins, update,
+reset). Without make: `cp .env.example .env`, set `AGENT_BRIDGE_API_KEY`,
+`docker compose up -d`.
 
 Then log in to the CLIs from the admin page, `http://127.0.0.1:8787/admin`:
 it runs each CLI's official login flow on the server and shows its link and
