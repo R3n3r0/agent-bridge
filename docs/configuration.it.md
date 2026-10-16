@@ -39,6 +39,7 @@ Flag (comuni a `serve`, `check-config` e `doctor`):
 | `ANTHROPIC_API_KEY` | solo con `api` | Chiave della Console; vietata con `subscription` (lo è anche `ANTHROPIC_AUTH_TOKEN`) |
 | `AGENT_BRIDGE_BACKEND` | no | `claude` (predefinito), `codex` o `kimi` |
 | `AGENT_BRIDGE_ADMIN` | no | `1`/`true` attiva la pagina di amministrazione (`admin`) |
+| `AGENT_BRIDGE_KIMI_REGION` | no | `global` (predefinito, kimi.ai) o `mainland-cn` (kimi.com): regione del login Kimi avviato dalla pagina di amministrazione (`kimi_region`) |
 | `AGENT_BRIDGE_ALLOW_REMOTE` | no | `1`/`true` consente un indirizzo non loopback (`allow_remote`); usata dall'immagine Docker |
 | `KIMI_MODEL_NAME`, `KIMI_MODEL_API_KEY` | solo con `api` e il backend kimi | Modello e chiave usati dalla CLI Kimi Code; la chiave è vietata con `subscription` (lo è anche `KIMI_API_KEY`) |
 | `CODEX_API_KEY` | solo con `api` e il backend codex | Chiave API OpenAI; vietata con `subscription` (lo è anche `CODEX_ACCESS_TOKEN`) |
@@ -63,6 +64,7 @@ figlio; in modalità `subscription` anche `ANTHROPIC_API_KEY` e
 | `claude_binary` | `claude` | Nome o percorso della CLI predefinita |
 | `codex_binary` | `codex` | Nome o percorso della CLI codex |
 | `kimi_binary` | `kimi` | Nome o percorso della CLI Kimi Code |
+| `kimi_region` | `global` | Regione del login Kimi dalla pagina di amministrazione: `global` (kimi.ai) o `mainland-cn` (kimi.com) |
 | `max_concurrent` | `2` | Processi attivi contemporaneamente (minimo 1) |
 | `max_queue` | `32` | Richieste in attesa di uno slot; oltre, 429 |
 | `queue_timeout_seconds` | `300` | Attesa massima in coda; oltre, 429 |

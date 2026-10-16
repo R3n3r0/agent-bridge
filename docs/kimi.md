@@ -16,11 +16,13 @@ answer every permission request.
 ## Quick start
 
 Prerequisite: the `kimi` CLI (Kimi Code), version **2.2.0 or later**, and
-one interactive login (`kimi login`).
+one interactive login (`kimi login --region global` for kimi.ai, the service
+outside mainland China; without `--region` the CLI uses kimi.com). The CLI
+remembers the region with the login, so `kimi acp` uses the same service.
 
 ```sh
 npm install -g @moonshot-ai/kimi-code   # or the official install script
-kimi login
+kimi login --region global
 AGENT_BRIDGE_AUTH_MODE=subscription agent-bridge -backend kimi
 curl -s http://127.0.0.1:8787/v1/chat/completions \
   -d '{"model":"bridge/default","messages":[{"role":"user","content":"Hello!"}]}'

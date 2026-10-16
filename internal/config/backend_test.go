@@ -118,8 +118,16 @@ func TestKimiBackend(t *testing.T) {
 		t.Fatalf("default alias %+v", a)
 	}
 	cfg, err = Load(flags(t, "-backend", "kimi", "-kimi-bin", "/k"), env(nil))
-	if err != nil || cfg.Binary != "/k" {
+	if err != nil || cfg.Binary != "/k" || cfg.KimiRegion != KimiRegionGlobal {
 		t.Fatalf("flags %v %v", cfg, err)
+	}
+	cfg, err = Load(flags(t), env(map[string]string{EnvKimiRegion: "mainland-cn"}))
+	if err != nil || cfg.KimiRegion != KimiRegionChina {
+		t.Fatalf("region from env %v %v", cfg, err)
+	}
+	if _, err = Load(flags(t), env(map[string]string{EnvKimiRegion: "eu"})); err == nil ||
+		!strings.Contains(err.Error(), `kimi_region: must be global or mainland-cn, got "eu"`) {
+		t.Fatalf("invalid region %v", err)
 	}
 
 	p = writeConfig(t, dir, `{"backend": "kimi", "kimi_binary": "", "agents": {
