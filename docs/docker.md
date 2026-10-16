@@ -78,6 +78,7 @@ Enabled with `admin: true` or `AGENT_BRIDGE_ADMIN=1` (the image sets it).
 | Method and path | Effect |
 | --- | --- |
 | `GET /admin` | The page (static, no data) |
+| `GET /admin/assets/{file}` | The page's script, styles and icon |
 | `GET /admin/api/logins` | State of every CLI (cached for 30 seconds, refreshed when a login starts or ends) and of its current or last login, with the links and one-time codes it printed |
 | `POST /admin/api/logins/{cli}` | Starts the login of `claude`, `codex` or `kimi` (or returns the running one) |
 | `POST /admin/api/logins/{cli}/input` | Sends `{"text": "..."}` (one line) to the running login |
@@ -126,6 +127,17 @@ the CLI's own sandbox cannot start inside the container.
 | `make shell` | Shell in a service |
 | `make update` | Rebuilds with the latest CLIs and restarts |
 | `make reset` | Deletes the volumes, logins included, after confirmation |
+| `make ui`, `make ui-test`, `make ui-dev` | Rebuilds the admin page; runs its tests; dev server on `:5173` that proxies the API of `127.0.0.1:8787` (need Node) |
+
+## The admin page
+
+The page is a React application in `web/admin` (Vite, TypeScript). Its build
+is written to `internal/server/adminui` and embedded in the binary, so `go
+build` and `go install` need no Node; the build is committed and the image
+rebuilds it in a dedicated stage. After changing `web/admin`, run `make ui`
+and commit `internal/server/adminui` too. The page loads only its own files
+(`Content-Security-Policy` with `script-src 'self'`) and keeps the API key in
+`sessionStorage`.
 
 ## Building
 

@@ -20,6 +20,9 @@ Infrastructure                    replaceable implementations
    internal/stats     Collector, JSONLUsageLog, DiscardUsage
    internal/tools     HTTPBroker, client functions MCP server (ServeMCP)
    internal/media     HTTPResolver: data: URLs and image downloads with address checks
+   internal/login     ProcessManager: the CLIs' official login flows
+
+web/admin                         admin page (React, TypeScript), built into internal/server/adminui
 ```
 
 ## Interfaces
@@ -102,6 +105,9 @@ the HTTP layer knows the status codes: the mapping is in
   `classify.go` (outcome mapping) and `errors.go`.
 - Production files stay under about 300 lines; a file that grows beyond that
   is split by responsibility.
+- The admin page follows the same rule: `api.ts` (HTTP client),
+  `hooks/useLogins.ts` (state and polling) and one file per component in
+  `components/`.
 
 ## Extending
 

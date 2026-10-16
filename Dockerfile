@@ -7,11 +7,20 @@ ARG BASE_REGISTRY=docker.io/library
 ARG GO_VERSION=1.24
 ARG NODE_VERSION=22
 
+# The admin page (React) is built from web/admin.
+FROM ${BASE_REGISTRY}/node:${NODE_VERSION}-bookworm-slim AS ui
+WORKDIR /src/web/admin
+COPY web/admin/package.json web/admin/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY web/admin/ ./
+RUN npm run build
+
 FROM ${BASE_REGISTRY}/golang:${GO_VERSION}-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+COPY --from=ui /src/internal/server/adminui ./internal/server/adminui
 ARG VERSION=docker
 RUN CGO_ENABLED=0 go build -trimpath \
     -ldflags "-s -w -X github.com/r3n3r0/agent-bridge/internal/version.Version=${VERSION}" \

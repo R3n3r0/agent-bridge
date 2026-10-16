@@ -67,8 +67,24 @@ func TestAdminAPI(t *testing.T) {
 	auth := []string{"Authorization", "Bearer k", headerAdmin, "1"}
 
 	code, body := adminDo(t, ts, "GET", "/admin", "")
-	if code != 200 || !strings.Contains(body, "agent-bridge logins") {
-		t.Fatalf("page %d", code)
+	if code != 200 || !strings.Contains(body, "agent-bridge logins") || !strings.Contains(body, "/admin/assets/admin.js") {
+		t.Fatalf("page %d %s", code, body)
+	}
+	for asset, ctype := range map[string]string{"admin.js": "javascript", "admin.css": "text/css"} {
+		resp, err := http.Get(ts.URL + "/admin/assets/" + asset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 200 || !strings.Contains(resp.Header.Get("Content-Type"), ctype) ||
+			!strings.Contains(resp.Header.Get("Content-Security-Policy"), "script-src 'self'") {
+			t.Fatalf("%s: %d %v", asset, resp.StatusCode, resp.Header)
+		}
+	}
+	for _, p := range []string{"/admin/assets/missing.js", "/admin/assets/", "/admin/assets/..%2Findex.html"} {
+		if code, _ := adminDo(t, ts, "GET", p, ""); code != 404 {
+			t.Errorf("%s: %d, want 404", p, code)
+		}
 	}
 	if code, _ := adminDo(t, ts, "GET", "/admin/api/logins", ""); code != 401 {
 		t.Fatalf("status without key: %d", code)
