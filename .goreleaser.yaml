@@ -1,0 +1,48 @@
+version: 2
+
+project_name: agent-bridge
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: agent-bridge
+    main: ./cmd/agent-bridge
+    binary: agent-bridge
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/r3n3r0/agent-bridge/internal/version.Version={{ .Version }}
+      - -X github.com/r3n3r0/agent-bridge/internal/version.Commit={{ .ShortCommit }}
+      - -X github.com/r3n3r0/agent-bridge/internal/version.Date={{ .Date }}
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+      - README.it.md
+      - LICENSE
+      - CHANGELOG.md
+      - docs/*
+      - examples/**/*
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^ci:'
