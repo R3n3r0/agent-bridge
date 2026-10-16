@@ -1,10 +1,13 @@
 package server
 
 import (
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"errors"
+	"io/fs"
+	"mime"
 	"net/http"
+	"path"
 
 	"github.com/r3n3r0/agent-bridge/internal/login"
 )
@@ -14,8 +17,14 @@ import (
 // does not grant, so other sites cannot start logins or paste codes.
 const headerAdmin = "X-Agent-Bridge-Admin"
 
-//go:embed admin.html
-var adminPage []byte
+// adminUI is the admin page, a React application built from web/admin
+// (npm run build) into adminui.
+//
+//go:embed adminui
+var adminUI embed.FS
+
+// adminCSP allows only the page's own script, styles and API.
+const adminCSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 
 // adminRoutes registers the admin page and its API when login management
 // is enabled.
@@ -24,12 +33,15 @@ func (s *Server) adminRoutes(mux *http.ServeMux) {
 		return
 	}
 	mux.HandleFunc("GET /admin", func(w http.ResponseWriter, r *http.Request) {
-		h := w.Header()
-		h.Set("Content-Type", "text/html; charset=utf-8")
-		h.Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'")
-		h.Set("X-Frame-Options", "DENY")
-		h.Set("Cache-Control", "no-store")
-		_, _ = w.Write(adminPage)
+		serveAdminFile(w, "index.html")
+	})
+	mux.HandleFunc("GET /admin/assets/{file}", func(w http.ResponseWriter, r *http.Request) {
+		file := r.PathValue("file")
+		if file == "" || path.Base(file) != file || file == ".." {
+			http.NotFound(w, r)
+			return
+		}
+		serveAdminFile(w, "assets/"+file)
 	})
 	mux.Handle("GET /admin/api/logins", s.auth(http.HandlerFunc(s.handleLoginStatuses)))
 	mux.Handle("POST /admin/api/logins/{cli}", s.auth(s.adminWrite(s.handleLoginStart)))
@@ -97,4 +109,24 @@ func loginError(err error) *apiError {
 		return newError(http.StatusBadRequest, errInvalidRequest, err.Error())
 	}
 	return newError(http.StatusInternalServerError, errServerError, err.Error())
+}
+
+// serveAdminFile serves one file of the embedded admin page.
+func serveAdminFile(w http.ResponseWriter, name string) {
+	data, err := fs.ReadFile(adminUI, path.Join("adminui", name))
+	if err != nil {
+		http.NotFound(w, nil)
+		return
+	}
+	h := w.Header()
+	ctype := mime.TypeByExtension(path.Ext(name))
+	if ctype == "" {
+		ctype = "application/octet-stream"
+	}
+	h.Set("Content-Type", ctype)
+	h.Set("Content-Security-Policy", adminCSP)
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("X-Frame-Options", "DENY")
+	h.Set("Cache-Control", "no-cache")
+	_, _ = w.Write(data)
 }

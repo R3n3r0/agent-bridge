@@ -41,6 +41,9 @@ First complete implementation of the specification ([docs/specification.md](docs
   official login flows and shows their links and codes, without reading the credentials.
   `AGENT_BRIDGE_ALLOW_REMOTE` and `AGENT_BRIDGE_ADMIN` environment variables. `Makefile` to run it locally
   (`make up`, `make admin`, `make smoke`).
+- Admin page rewritten in React (`web/admin`, Vite, TypeScript, Vitest tests), embedded in the binary from
+  `internal/server/adminui`; the code typed in the login field is no longer cleared by the periodic refresh.
+  `make ui`, `make ui-test`, `make ui-dev`.
 - Neutral names visible to clients and operators: error code `cli_error`, field `cli_session_id`.
 - OpenAI-style keys (`sk-…`) are redacted from logs and errors.
 - One file per interface and per implementation; large files split by responsibility.

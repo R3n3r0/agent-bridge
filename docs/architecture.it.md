@@ -20,6 +20,9 @@ Infrastruttura                    implementazioni sostituibili
    internal/stats     Collector, JSONLUsageLog, DiscardUsage
    internal/tools     HTTPBroker, server MCP delle funzioni del client (ServeMCP)
    internal/media     HTTPResolver: URL data: e download di immagini con controllo degli indirizzi
+   internal/login     ProcessManager: i flussi di login ufficiali delle CLI
+
+web/admin                         pagina di amministrazione (React, TypeScript), compilata in internal/server/adminui
 ```
 
 ## Interfacce
@@ -102,6 +105,9 @@ il livello HTTP conosce i codici di stato: la mappatura è in
   (prompt e immagini), `classify.go` (mappatura dell'esito) ed `errors.go`.
 - I file di produzione restano sotto le 300 righe circa; un file che cresce
   oltre si divide per responsabilità.
+- La pagina di amministrazione segue la stessa regola: `api.ts` (client
+  HTTP), `hooks/useLogins.ts` (stato e polling) e un file per componente in
+  `components/`.
 
 ## Estendere
 

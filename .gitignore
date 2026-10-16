@@ -7,3 +7,4 @@ coverage.*
 sessions.json
 /workspace/
 .env
+/web/admin/node_modules/

@@ -80,6 +80,7 @@ Si attiva con `admin: true` o `AGENT_BRIDGE_ADMIN=1` (l'immagine la imposta).
 | Metodo e percorso | Effetto |
 | --- | --- |
 | `GET /admin` | La pagina (statica, senza dati) |
+| `GET /admin/assets/{file}` | Script, stili e icona della pagina |
 | `GET /admin/api/logins` | Stato di ogni CLI (in cache per 30 secondi, aggiornato quando un login inizia o finisce) e del suo login in corso o ultimo, con i link e i codici monouso stampati |
 | `POST /admin/api/logins/{cli}` | Avvia il login di `claude`, `codex` o `kimi` (o restituisce quello in corso) |
 | `POST /admin/api/logins/{cli}/input` | Invia `{"text": "..."}` (una riga) al login in corso |
@@ -129,6 +130,18 @@ avviarsi dentro il container.
 | `make shell` | Shell in un servizio |
 | `make update` | Ricostruisce con le CLI più recenti e riavvia |
 | `make reset` | Cancella i volumi, login compresi, dopo conferma |
+| `make ui`, `make ui-test`, `make ui-dev` | Ricostruisce la pagina di amministrazione; ne esegue i test; server di sviluppo su `:5173` che inoltra le API di `127.0.0.1:8787` (serve Node) |
+
+## La pagina di amministrazione
+
+La pagina è un'applicazione React in `web/admin` (Vite, TypeScript). La sua
+build viene scritta in `internal/server/adminui` e incorporata nel binario,
+quindi `go build` e `go install` non richiedono Node; la build è nel
+repository e l'immagine la ricostruisce in uno stage dedicato. Dopo aver
+modificato `web/admin`, esegui `make ui` e fai commit anche di
+`internal/server/adminui`. La pagina carica solo i propri file
+(`Content-Security-Policy` con `script-src 'self'`) e tiene la chiave API in
+`sessionStorage`.
 
 ## Build
 

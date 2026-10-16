@@ -20,7 +20,7 @@ API_KEY = $(shell sed -n 's/^AGENT_BRIDGE_API_KEY=//p' $(ENV_FILE) 2>/dev/null |
 
 .DEFAULT_GOAL := help
 .PHONY: help env build up down restart ps logs admin key urls doctor smoke \
-	login-claude login-codex login-kimi shell update reset test
+	login-claude login-codex login-kimi shell update reset test ui ui-dev ui-test
 
 help: ## Show this help
 	@echo "agent-bridge with Docker Compose"
@@ -118,3 +118,12 @@ reset: ## Stop everything and DELETE the volumes, logins included
 
 test: ## Run the Go tests (needs Go on this machine)
 	go test ./...
+
+ui: ## Rebuild the admin page (React) into internal/server/adminui (needs Node)
+	cd web/admin && npm ci --no-audit --no-fund && npm run build
+
+ui-test: ## Run the admin page tests (needs Node)
+	cd web/admin && npm ci --no-audit --no-fund && npm test
+
+ui-dev: ## Admin page dev server on :5173, proxying the API of 127.0.0.1:8787
+	cd web/admin && npm ci --no-audit --no-fund && npm run dev
