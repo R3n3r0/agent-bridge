@@ -104,6 +104,7 @@ With `backend: "kimi"`, the Kimi Code CLI at version `2.2.0` (`runner.KimiMinVer
 ## Release
 
 - [ ] `internal/server/adminui` rebuilt with `make ui` and committed if `web/admin` changed (the workflow fails otherwise).
-- [ ] Tag `vX.Y.Z` created and pushed (`git tag vX.Y.Z && git push origin vX.Y.Z`); `release` workflow green: tests and binaries. A suffix (`vX.Y.Z-rc.1`) makes a pre-release.
+- [ ] Tag `vX.Y.Z` created and pushed (`git tag vX.Y.Z && git push origin vX.Y.Z`); `release` workflow green: tests, binaries and Docker image. A suffix (`vX.Y.Z-rc.1`) makes a pre-release, without the `latest` image tag.
+- [ ] Image `paolor/agent-bridge:X.Y.Z` (and `latest`) on Docker Hub for `linux/amd64` and `linux/arm64`. The `image` job runs only with the repository variable `DOCKERHUB_USERNAME` and the secret `DOCKERHUB_TOKEN` (a Docker Hub access token with Read & Write).
 - [ ] Archives and `checksums.txt` present for linux, darwin and windows on amd64 and arm64.
 - [ ] `go install github.com/r3n3r0/agent-bridge/cmd/agent-bridge@vX.Y.Z` works.
