@@ -9,7 +9,9 @@ name: agent-bridge
 
 x-bridge: &bridge
   build: .
-  image: agent-bridge:local
+  # A published image instead of a local build: set AGENT_BRIDGE_IMAGE
+  # (e.g. paolor/agent-bridge:latest) and run make pull.
+  image: ${AGENT_BRIDGE_IMAGE:-agent-bridge:local}
   restart: unless-stopped
   volumes:
     - home:/home/bridge

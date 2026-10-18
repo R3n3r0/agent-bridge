@@ -41,6 +41,14 @@ checksum:
 release:
   # Tags with a suffix (v1.2.0-rc.1) are published as pre-releases.
   prerelease: auto
+  footer: |
+    ## Docker
+
+    ```sh
+    docker pull paolor/agent-bridge:{{ .Version }}
+    ```
+
+    Or set `AGENT_BRIDGE_IMAGE=paolor/agent-bridge:{{ .Version }}` in `.env` and run `make pull up`.
 
 changelog:
   use: git

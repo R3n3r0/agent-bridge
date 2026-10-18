@@ -45,7 +45,9 @@ First complete implementation of the specification ([docs/specification.md](docs
   `internal/server/adminui`; the code typed in the login field is no longer cleared by the periodic refresh.
   `make ui`, `make ui-test`, `make ui-dev`.
 - Release on tag `v*`: tests first, then binaries for Linux, macOS and Windows (amd64, arm64) with checksums;
-  tags with a suffix (`-rc.1`) are pre-releases.
+  tags with a suffix (`-rc.1`) are pre-releases. Docker image `paolor/agent-bridge` on Docker Hub (`linux/amd64`,
+  `linux/arm64`) when `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` are configured; `AGENT_BRIDGE_IMAGE` and
+  `make pull` to use it with Compose.
 - Kimi login region: `kimi_region` / `AGENT_BRIDGE_KIMI_REGION`, `global` (kimi.ai) by default or `mainland-cn`
   (kimi.com); the admin page and `make login-kimi` run `kimi login --region <region>`.
 - Neutral names visible to clients and operators: error code `cli_error`, field `cli_session_id`.

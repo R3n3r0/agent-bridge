@@ -77,7 +77,8 @@ is; the `bridge/` prefix can be changed with `builtin_prefix`). They are
 but they accept client functions and images.
 
 Alternatively, download a binary from the releases page (archives and
-`checksums.txt` for Linux, macOS and Windows on amd64 and arm64).
+`checksums.txt` for Linux, macOS and Windows on amd64 and arm64), or use the
+Docker image `paolor/agent-bridge` with the three CLIs ([Docker](docs/docker.md)).
 
 ## Using it as a model
 
