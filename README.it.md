@@ -79,7 +79,7 @@ com'è; il prefisso `bridge/` si cambia con `builtin_prefix`). Sono modelli
 accettano le funzioni del client e le immagini.
 
 In alternativa scaricare un binario dalla pagina delle release (archivi e
-`checksums.txt` per ogni piattaforma).
+`checksums.txt` per Linux, macOS e Windows su amd64 e arm64).
 
 ## Uso come modello
 

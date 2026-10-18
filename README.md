@@ -77,7 +77,7 @@ is; the `bridge/` prefix can be changed with `builtin_prefix`). They are
 but they accept client functions and images.
 
 Alternatively, download a binary from the releases page (archives and
-`checksums.txt` for every platform).
+`checksums.txt` for Linux, macOS and Windows on amd64 and arm64).
 
 ## Using it as a model
 
