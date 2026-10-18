@@ -44,9 +44,8 @@ First complete implementation of the specification ([docs/specification.md](docs
 - Admin page rewritten in React (`web/admin`, Vite, TypeScript, Vitest tests), embedded in the binary from
   `internal/server/adminui`; the code typed in the login field is no longer cleared by the periodic refresh.
   `make ui`, `make ui-test`, `make ui-dev`.
-- Release on tag `v*`: tests, binaries for Linux, macOS and Windows (amd64, arm64) with checksums, and the Docker
-  image `ghcr.io/r3n3r0/agent-bridge` for `linux/amd64` and `linux/arm64`; `AGENT_BRIDGE_IMAGE` and `make pull` to
-  use it with Compose.
+- Release on tag `v*`: tests first, then binaries for Linux, macOS and Windows (amd64, arm64) with checksums;
+  tags with a suffix (`-rc.1`) are pre-releases.
 - Kimi login region: `kimi_region` / `AGENT_BRIDGE_KIMI_REGION`, `global` (kimi.ai) by default or `mainland-cn`
   (kimi.com); the admin page and `make login-kimi` run `kimi login --region <region>`.
 - Neutral names visible to clients and operators: error code `cli_error`, field `cli_session_id`.

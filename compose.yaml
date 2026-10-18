@@ -9,9 +9,7 @@ name: agent-bridge
 
 x-bridge: &bridge
   build: .
-  # A published image instead of a local build: set AGENT_BRIDGE_IMAGE
-  # (e.g. ghcr.io/r3n3r0/agent-bridge:latest) and run make pull.
-  image: ${AGENT_BRIDGE_IMAGE:-agent-bridge:local}
+  image: agent-bridge:local
   restart: unless-stopped
   volumes:
     - home:/home/bridge

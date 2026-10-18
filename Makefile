@@ -20,7 +20,7 @@ API_KEY = $(shell sed -n 's/^AGENT_BRIDGE_API_KEY=//p' $(ENV_FILE) 2>/dev/null |
 
 .DEFAULT_GOAL := help
 .PHONY: help env build up down restart ps logs admin key urls doctor smoke \
-	login-claude login-codex login-kimi shell pull update reset test ui ui-dev ui-test
+	login-claude login-codex login-kimi shell update reset test ui ui-dev ui-test
 
 help: ## Show this help
 	@echo "agent-bridge with Docker Compose"
@@ -106,10 +106,6 @@ login-kimi: ## Log in to Kimi Code from the terminal
 
 shell: ## Open a shell in a service (claude, or SERVICES=codex)
 	$(COMPOSE) exec $(or $(SERVICES),claude) bash
-
-pull: env ## Download the published image set in AGENT_BRIDGE_IMAGE instead of building
-	@grep -q '^AGENT_BRIDGE_IMAGE=.' $(ENV_FILE) || { echo "Set AGENT_BRIDGE_IMAGE in $(ENV_FILE), e.g. ghcr.io/r3n3r0/agent-bridge:latest"; exit 1; }
-	$(COMPOSE) pull
 
 update: env ## Rebuild with the latest CLIs and restart
 	$(COMPOSE) build --pull --no-cache

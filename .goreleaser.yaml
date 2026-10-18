@@ -41,14 +41,6 @@ checksum:
 release:
   # Tags with a suffix (v1.2.0-rc.1) are published as pre-releases.
   prerelease: auto
-  footer: |
-    ## Docker
-
-    ```sh
-    docker pull ghcr.io/r3n3r0/agent-bridge:{{ .Version }}
-    ```
-
-    Or set `AGENT_BRIDGE_IMAGE=ghcr.io/r3n3r0/agent-bridge:{{ .Version }}` in `.env` and run `make pull up`.
 
 changelog:
   use: git

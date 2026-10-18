@@ -79,9 +79,7 @@ com'è; il prefisso `bridge/` si cambia con `builtin_prefix`). Sono modelli
 accettano le funzioni del client e le immagini.
 
 In alternativa scaricare un binario dalla pagina delle release (archivi e
-`checksums.txt` per Linux, macOS e Windows su amd64 e arm64), oppure usare
-l'immagine Docker `ghcr.io/r3n3r0/agent-bridge` con le tre CLI
-([Docker](docs/docker.it.md)).
+`checksums.txt` per Linux, macOS e Windows su amd64 e arm64).
 
 ## Uso come modello
 
