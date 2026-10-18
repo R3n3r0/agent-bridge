@@ -103,6 +103,8 @@ Con `backend: "kimi"`, la CLI Kimi Code alla versione `2.2.0` (`runner.KimiMinVe
 
 ## Rilascio
 
-- [ ] Tag `vX.Y.Z` creato e pubblicato; workflow `release` verde.
+- [ ] `internal/server/adminui` ricostruita con `make ui` e committata se `web/admin` è cambiata (altrimenti il workflow fallisce).
+- [ ] Tag `vX.Y.Z` creato e pubblicato (`git tag vX.Y.Z && git push origin vX.Y.Z`); workflow `release` verde: test, binari, immagine. Un suffisso (`vX.Y.Z-rc.1`) produce una pre-release senza il tag `latest` dell'immagine.
+- [ ] Immagine `ghcr.io/r3n3r0/agent-bridge:X.Y.Z` (e `latest`) pubblicata per `linux/amd64` e `linux/arm64`; alla prima release, pacchetto reso pubblico (GitHub → Packages → agent-bridge → Package settings → Change visibility).
 - [ ] Archivi e `checksums.txt` presenti per linux, darwin e windows su amd64 e arm64.
 - [ ] `go install github.com/r3n3r0/agent-bridge/cmd/agent-bridge@vX.Y.Z` funziona.

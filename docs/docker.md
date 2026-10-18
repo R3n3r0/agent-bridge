@@ -27,6 +27,12 @@ mkdir -p workspace
 docker compose up -d            # or only some services: docker compose up -d codex
 ```
 
+To use a published image instead of building one, set
+`AGENT_BRIDGE_IMAGE=ghcr.io/r3n3r0/agent-bridge:latest` (or a version, e.g.
+`:1.0.0`) in `.env`, then `make pull up` (or `docker compose pull` and
+`docker compose up -d`). Images are published for `linux/amd64` and
+`linux/arm64` with every release.
+
 | Service | Backend | Host address |
 | --- | --- | --- |
 | `claude` | default CLI | `http://127.0.0.1:8787/v1` |

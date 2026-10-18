@@ -1,15 +1,50 @@
 name: release
 
+# Runs when a tag vX.Y.Z is pushed: tests, then the binaries on the GitHub
+# release and the Docker image on GitHub Container Registry.
 on:
   push:
     tags: ['v*']
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  goreleaser:
+  test:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/admin/package-lock.json
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test -race ./...
+      - name: admin page tests
+        working-directory: web/admin
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+      # The binaries embed internal/server/adminui as committed: it must
+      # match a fresh build of web/admin.
+      - name: admin page build is up to date
+        run: |
+          (cd web/admin && npm run build)
+          if ! git diff --quiet -- internal/server/adminui || [ -n "$(git status --porcelain -- internal/server/adminui)" ]; then
+            echo "internal/server/adminui is stale: run 'make ui' and commit it"; git status --short -- internal/server/adminui; exit 1
+          fi
+
+  binaries:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,3 +59,38 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/r3n3r0/agent-bridge
+          # A tag with a suffix (v1.2.0-rc.1) is a pre-release: no "latest".
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: VERSION=${{ steps.meta.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
