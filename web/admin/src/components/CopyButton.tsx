@@ -1,7 +1,7 @@
 import { useState } from "react";
 
-export function CopyButton({ text }: { text: string }) {
-  const [label, setLabel] = useState("Copy");
+export function CopyButton({ text, label: idle = "Copy" }: { text: string; label?: string }) {
+  const [label, setLabel] = useState(idle);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(text);
@@ -9,7 +9,7 @@ export function CopyButton({ text }: { text: string }) {
     } catch {
       setLabel("Select and copy");
     }
-    setTimeout(() => setLabel("Copy"), 1500);
+    setTimeout(() => setLabel(idle), 1500);
   };
   return (
     <button type="button" onClick={copy}>

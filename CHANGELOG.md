@@ -44,6 +44,9 @@ First complete implementation of the specification ([docs/specification.md](docs
 - Admin page rewritten in React (`web/admin`, Vite, TypeScript, Vitest tests), embedded in the binary from
   `internal/server/adminui`; the code typed in the login field is no longer cleared by the periodic refresh.
   `make ui`, `make ui-test`, `make ui-dev`.
+- Local embedding models: optional Ollama service in Compose (profile `embeddings`) and an Embeddings section on the
+  admin page to download, test and delete models and copy the clients' endpoint; `ollama_url`, `ollama_client_url`
+  (`AGENT_BRIDGE_OLLAMA_URL`, `AGENT_BRIDGE_OLLAMA_CLIENT_URL`). The admin page is now titled "agent-bridge admin".
 - Release on tag `v*`: tests first, then binaries for Linux, macOS and Windows (amd64, arm64) with checksums;
   tags with a suffix (`-rc.1`) are pre-releases. Docker image `paolor/agent-bridge` on Docker Hub (`linux/amd64`,
   `linux/arm64`) when `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` are configured; `AGENT_BRIDGE_IMAGE` and

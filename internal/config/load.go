@@ -92,6 +92,12 @@ func Load(f *Flags, getenv func(string) string) (*Config, error) {
 	if v := getenv(EnvBackend); v != "" {
 		cfg.Backend = v
 	}
+	if v := getenv(EnvOllamaURL); v != "" {
+		cfg.OllamaURL = v
+	}
+	if v := getenv(EnvOllamaClientURL); v != "" {
+		cfg.OllamaClientURL = v
+	}
 	if v := getenv(EnvKimiRegion); v != "" {
 		cfg.KimiRegion = v
 	}

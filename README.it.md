@@ -473,7 +473,9 @@ e per Codex `codex login status`).
   400 `unsupported_content`; il campo `detail` delle immagini è accettato e
   ignorato.
 - Nessun supporto a `/v1/responses`, `/v1/embeddings`, generazione di
-  immagini, audio, né ad altri provider.
+  immagini, audio, né ad altri provider. Per gli embedding, lo stack Docker
+  include modelli locali serviti da Ollama e gestiti dalla pagina di
+  amministrazione ([Docker](docs/docker.it.md#modelli-di-embedding)).
 - Prompt fino a 9 MB (la CLI limita stdin a 10 MB).
 - In streaming gli header di risposta `X-Agent-Bridge-Turns`, `-Cost-USD` e
   `-Duration-Ms` non sono disponibili (gli header partono prima

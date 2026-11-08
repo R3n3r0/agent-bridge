@@ -463,7 +463,8 @@ the Codex and Kimi backends: the model configured in the CLI, and for Codex
 - Content parts other than text and `image_url` (audio, files) return 400
   `unsupported_content`; `detail` on images is accepted and ignored.
 - No support for `/v1/responses`, `/v1/embeddings`, image generation, audio,
-  or other providers.
+  or other providers. For embeddings, the Docker stack includes local models
+  served by Ollama and managed from the admin page ([Docker](docs/docker.md#embedding-models)).
 - Prompts up to 9 MB (the CLI limits stdin to 10 MB).
 - When streaming, the `X-Agent-Bridge-Turns`, `-Cost-USD` and `-Duration-Ms`
   response headers are not available (headers are sent before execution);

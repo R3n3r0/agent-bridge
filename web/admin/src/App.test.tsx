@@ -45,6 +45,9 @@ beforeEach(() => {
       if (headers["Authorization"] !== "Bearer k") {
         return new Response(JSON.stringify({ error: { message: "missing or invalid bearer token" } }), { status: 401 });
       }
+      if (init.method === "GET" && url.endsWith("/embeddings")) {
+        return new Response(JSON.stringify({ enabled: false, reachable: false, models: [], pulls: [] }), { status: 200 });
+      }
       if (init.method === "GET") return new Response(JSON.stringify(state), { status: 200 });
       return new Response(null, { status: 204 });
     }),
@@ -95,7 +98,7 @@ test("the refresh does not clear the code being typed, and the code is sent", as
   await withKey();
   const input = screen.getByLabelText("Code from the sign-in page") as HTMLInputElement;
   fireEvent.change(input, { target: { value: "abc#st" } });
-  const getCount = () => calls.filter((c) => c.method === "GET").length;
+  const getCount = () => calls.filter((c) => c.method === "GET" && c.url.endsWith("/logins")).length;
   for (let i = 0; i < 3; i++) {
     const before = getCount();
     await act(async () => {

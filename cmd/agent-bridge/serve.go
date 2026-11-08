@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/r3n3r0/agent-bridge/internal/config"
+	"github.com/r3n3r0/agent-bridge/internal/embeddings"
 	"github.com/r3n3r0/agent-bridge/internal/login"
 	"github.com/r3n3r0/agent-bridge/internal/media"
 	"github.com/r3n3r0/agent-bridge/internal/redact"
@@ -152,16 +153,22 @@ func serve(args []string, stderr io.Writer) int {
 		MaxImages:       cfg.Images.MaxCount,
 	})
 	var logins login.Manager
+	var embedModels embeddings.Manager
 	if cfg.Admin {
 		logins = login.NewProcessManager(login.Options{CLIs: login.CLIs(cfg), BaseEnv: os.Environ(), Logger: log})
 		log.Info("admin page enabled", "path", "/admin")
+		if cfg.OllamaURL != "" {
+			embedModels = embeddings.NewOllamaManager(embeddings.OllamaOptions{URL: cfg.OllamaURL, ClientURL: cfg.OllamaClientURL, Logger: log})
+			log.Info("embedding models enabled", "ollama", cfg.OllamaURL)
+		}
 	}
 	srv := server.New(server.Options{
-		Config: cfg,
-		Turns:  turns,
-		Stats:  collector,
-		Logger: log,
-		Logins: logins,
+		Config:     cfg,
+		Turns:      turns,
+		Stats:      collector,
+		Logger:     log,
+		Logins:     logins,
+		Embeddings: embedModels,
 	})
 	httpSrv := &http.Server{
 		Handler:           srv.Handler(),

@@ -21,6 +21,7 @@ Infrastruttura                    implementazioni sostituibili
    internal/tools     HTTPBroker, server MCP delle funzioni del client (ServeMCP)
    internal/media     HTTPResolver: URL data: e download di immagini con controllo degli indirizzi
    internal/login     ProcessManager: i flussi di login ufficiali delle CLI
+   internal/embeddings OllamaManager: modelli di embedding locali tramite l'API di Ollama
 
 web/admin                         pagina di amministrazione (React, TypeScript), compilata in internal/server/adminui
 ```
@@ -42,6 +43,7 @@ web/admin                         pagina di amministrazione (React, TypeScript),
 | `Broker` | `tools` | `HTTPBroker` | Instrada le chiamate alle funzioni del client verso il turno che le attende |
 | `Handler` | `tools` | il turno in esecuzione | Riceve una chiamata e la blocca fino al risultato del client |
 | `Manager` | `login` | `ProcessManager` | Esegue i flussi di login ufficiali delle CLI per la pagina di amministrazione e ne riporta lo stato |
+| `Manager` | `embeddings` | `OllamaManager` | Elenca, scarica, prova ed elimina i modelli di embedding di Ollama per la pagina di amministrazione |
 | `Resolver` | `media` | `HTTPResolver` | Trasforma l'URL di un'immagine (`data:` o `http(s)`) in byte validati |
 | `processController` (interna) | `runner` | process group su Unix, `taskkill` su Windows | Terminazione dell'albero dei processi |
 

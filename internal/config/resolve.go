@@ -39,6 +39,7 @@ func (c *Config) resolve() error {
 	if !oneOf(c.KimiRegion, KimiRegionGlobal, KimiRegionChina) {
 		add("kimi_region: must be global or mainland-cn, got %q", c.KimiRegion)
 	}
+	c.validateOllama(add)
 	if c.MaxConcurrent < 1 {
 		add("max_concurrent: must be at least 1, got %d", c.MaxConcurrent)
 	}

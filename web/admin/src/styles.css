@@ -37,3 +37,14 @@ pre { white-space:pre-wrap; word-break:break-all; background:var(--soft); border
 .err { color:var(--bad); font-size:14px; min-height:1.5em; margin-top:6px; }
 .err:empty { min-height:0; margin:0; }
 .hint { color:var(--muted); font-size:13px; }
+h2 { font-size:15px; font-weight:650; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin:22px 0 10px; }
+code { font:13px ui-monospace, SFMono-Regular, Menlo, monospace; background:var(--soft); border-radius:5px; padding:1px 5px; }
+code.url { font-size:14px; padding:6px 10px; border:1px solid var(--line); word-break:break-all; }
+.endpoint { margin:12px 0 4px; }
+ul.models, ul.pulls, ul.suggest { list-style:none; margin:12px 0 0; padding:0; }
+ul.models > li, ul.pulls > li { padding:10px 0; border-top:1px solid var(--line); }
+ul.suggest > li { display:flex; gap:10px; align-items:center; padding:4px 0; }
+ul.suggest > li > button { min-width:104px; }
+.pull { margin-top:14px; padding-top:12px; border-top:1px solid var(--line); }
+.pull form { margin-top:10px; }
+progress { width:100%; height:8px; margin-top:6px; accent-color:var(--acc); }

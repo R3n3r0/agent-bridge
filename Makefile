@@ -16,6 +16,7 @@ port = $(or $(shell sed -n 's/^$(1)=//p' $(ENV_FILE) 2>/dev/null | tail -n 1),$(
 CLAUDE_PORT = $(call port,CLAUDE_PORT,8787)
 CODEX_PORT = $(call port,CODEX_PORT,8788)
 KIMI_PORT = $(call port,KIMI_PORT,8789)
+OLLAMA_PORT = $(call port,OLLAMA_PORT,11434)
 API_KEY = $(shell sed -n 's/^AGENT_BRIDGE_API_KEY=//p' $(ENV_FILE) 2>/dev/null | tail -n 1)
 
 .DEFAULT_GOAL := help
@@ -67,6 +68,7 @@ urls: ## Print the addresses and the API key
 	@echo "  claude  http://127.0.0.1:$(CLAUDE_PORT)/v1   model bridge/sonnet"
 	@echo "  codex   http://127.0.0.1:$(CODEX_PORT)/v1   model bridge/default"
 	@echo "  kimi    http://127.0.0.1:$(KIMI_PORT)/v1   model bridge/default"
+	@echo "  embeddings  http://127.0.0.1:$(OLLAMA_PORT)/v1   models from the admin page (profile embeddings)"
 	@echo
 	@echo "  Next: make admin (log in to the CLIs), then make smoke"
 

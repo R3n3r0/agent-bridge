@@ -83,6 +83,42 @@ Gli stessi flussi si possono eseguire anche da terminale:
 `docker compose exec kimi kimi login --region global`,
 `docker compose exec -it claude claude auth login`.
 
+## Modelli di embedding
+
+Le CLI non producono embedding, quindi lo stack include un servizio
+[Ollama](https://ollama.com) opzionale con modelli di embedding locali:
+gratuito, e i testi non escono dalla macchina. Parte con il profilo
+`embeddings` (`COMPOSE_PROFILES=embeddings` in `.env`, il valore predefinito
+di `.env.example`) e ascolta su `127.0.0.1:11434`.
+
+La sezione **Embeddings** della pagina di amministrazione lo gestisce:
+
+- mostra se Ollama è raggiungibile e l'endpoint per i client
+  (`http://127.0.0.1:11434/v1`, compatibile OpenAI);
+- elenca i modelli installati (dimensione, famiglia, se è un modello di embedding);
+- scarica un modello suggerito (`bge-m3` per l'italiano e altre lingue,
+  `nomic-embed-text`, `mxbai-embed-large`, `all-minilm`) o qualsiasi altro per
+  nome, con avanzamento e annullamento;
+- prova un modello (un embedding: dimensioni e tempo) e lo elimina.
+
+I client usano due endpoint: la chat sul bridge (`http://127.0.0.1:8787/v1`,
+modello `bridge/sonnet`) e gli embedding su Ollama
+(`http://127.0.0.1:11434/v1`, per esempio modello `bge-m3`, chiave API
+qualsiasi). Il bridge non calcola né inoltra gli embedding.
+
+```sh
+curl -s http://127.0.0.1:11434/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{"model":"bge-m3","input":"ciao mondo"}'
+```
+
+I modelli sono salvati nel volume `ollama`. Impostazioni:
+`AGENT_BRIDGE_OLLAMA_URL` (Ollama come lo raggiunge il bridge,
+`http://ollama:11434`; vuota nasconde la sezione),
+`AGENT_BRIDGE_OLLAMA_CLIENT_URL` (l'indirizzo mostrato ai client),
+`OLLAMA_PORT`, `OLLAMA_VERSION`. Senza Docker, imposta `ollama_url` nel file
+di configurazione verso un Ollama locale.
+
 ## API di amministrazione
 
 Si attiva con `admin: true` o `AGENT_BRIDGE_ADMIN=1` (l'immagine la imposta).
@@ -95,6 +131,11 @@ Si attiva con `admin: true` o `AGENT_BRIDGE_ADMIN=1` (l'immagine la imposta).
 | `POST /admin/api/logins/{cli}` | Avvia il login di `claude`, `codex` o `kimi` (o restituisce quello in corso) |
 | `POST /admin/api/logins/{cli}/input` | Invia `{"text": "..."}` (una riga) al login in corso |
 | `DELETE /admin/api/logins/{cli}` | Annulla il login in corso |
+| `GET /admin/api/embeddings` | Stato di Ollama, modelli installati, download |
+| `POST /admin/api/embeddings/pulls` | Scarica `{"model": "..."}` |
+| `DELETE /admin/api/embeddings/pulls?model=` | Annulla un download |
+| `DELETE /admin/api/embeddings/models?model=` | Elimina un modello |
+| `POST /admin/api/embeddings/test` | Un embedding di prova di `{"model": "..."}` |
 
 Ogni chiamata richiede la chiave Bearer quando è impostata; quelle che
 cambiano lo stato richiedono anche l'header `X-Agent-Bridge-Admin: 1`, che un

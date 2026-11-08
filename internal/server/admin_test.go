@@ -67,7 +67,7 @@ func TestAdminAPI(t *testing.T) {
 	auth := []string{"Authorization", "Bearer k", headerAdmin, "1"}
 
 	code, body := adminDo(t, ts, "GET", "/admin", "")
-	if code != 200 || !strings.Contains(body, "agent-bridge logins") || !strings.Contains(body, "/admin/assets/admin.js") {
+	if code != 200 || !strings.Contains(body, "agent-bridge admin") || !strings.Contains(body, "/admin/assets/admin.js") {
 		t.Fatalf("page %d %s", code, body)
 	}
 	for asset, ctype := range map[string]string{"admin.js": "javascript", "admin.css": "text/css"} {

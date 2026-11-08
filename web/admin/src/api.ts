@@ -1,4 +1,5 @@
-// Client of the bridge's admin API (/admin/api/logins).
+// Client of the bridge's admin API (/admin/api): CLI logins and embedding
+// models.
 
 export type FlowState = "running" | "succeeded" | "failed" | "canceled";
 
@@ -25,6 +26,44 @@ export interface Logins {
   clis: CliStatus[];
 }
 
+export interface Model {
+  name: string;
+  size: number;
+  modified_at: string;
+  family?: string;
+  parameter_size?: string;
+  // null when the server does not report the model's capabilities.
+  embedding: boolean | null;
+}
+
+export type PullState = "running" | "succeeded" | "failed" | "canceled";
+
+export interface Pull {
+  model: string;
+  state: PullState;
+  status: string;
+  completed: number;
+  total: number;
+  error?: string;
+  started_at: string;
+}
+
+export interface Embeddings {
+  enabled: boolean;
+  client_url?: string;
+  reachable: boolean;
+  version?: string;
+  error?: string;
+  models: Model[];
+  pulls: Pull[];
+}
+
+export interface TestResult {
+  model: string;
+  dimensions: number;
+  millis: number;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -34,7 +73,7 @@ export class ApiError extends Error {
   }
 }
 
-const BASE = "/admin/api/logins";
+const BASE = "/admin/api";
 
 export class AdminApi {
   constructor(private readonly key: string) {}
@@ -52,18 +91,38 @@ export class AdminApi {
   }
 
   logins(): Promise<Logins> {
-    return this.call("GET", "");
+    return this.call("GET", "/logins");
   }
 
   start(cli: string): Promise<Flow> {
-    return this.call("POST", `/${cli}`);
+    return this.call("POST", `/logins/${cli}`);
   }
 
   sendCode(cli: string, text: string): Promise<void> {
-    return this.call("POST", `/${cli}/input`, { text });
+    return this.call("POST", `/logins/${cli}/input`, { text });
   }
 
   cancel(cli: string): Promise<void> {
-    return this.call("DELETE", `/${cli}`);
+    return this.call("DELETE", `/logins/${cli}`);
+  }
+
+  embeddings(): Promise<Embeddings> {
+    return this.call("GET", "/embeddings");
+  }
+
+  pullModel(model: string): Promise<Pull> {
+    return this.call("POST", "/embeddings/pulls", { model });
+  }
+
+  cancelPull(model: string): Promise<void> {
+    return this.call("DELETE", `/embeddings/pulls?model=${encodeURIComponent(model)}`);
+  }
+
+  deleteModel(model: string): Promise<void> {
+    return this.call("DELETE", `/embeddings/models?model=${encodeURIComponent(model)}`);
+  }
+
+  testModel(model: string, text: string): Promise<TestResult> {
+    return this.call("POST", "/embeddings/test", { model, text });
   }
 }

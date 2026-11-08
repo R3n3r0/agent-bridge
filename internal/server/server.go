@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/r3n3r0/agent-bridge/internal/config"
+	"github.com/r3n3r0/agent-bridge/internal/embeddings"
 	"github.com/r3n3r0/agent-bridge/internal/login"
 	"github.com/r3n3r0/agent-bridge/internal/stats"
 	"github.com/r3n3r0/agent-bridge/internal/turn"
@@ -52,6 +53,9 @@ type Options struct {
 	// Logins, if set, enables the admin page that runs the CLIs' login
 	// flows.
 	Logins login.Manager
+	// Embeddings, if set with Logins, adds the management of the local
+	// embedding models to the admin page.
+	Embeddings embeddings.Manager
 }
 
 // Server serves the bridge API.
@@ -63,6 +67,7 @@ type Server struct {
 	keepalive time.Duration
 	ready     func() error
 	logins    login.Manager
+	embed     embeddings.Manager
 	keyHash   [32]byte
 }
 
@@ -76,6 +81,7 @@ func New(o Options) *Server {
 		keepalive: o.KeepaliveInterval,
 		ready:     o.Ready,
 		logins:    o.Logins,
+		embed:     o.Embeddings,
 	}
 	if s.log == nil {
 		s.log = slog.Default()

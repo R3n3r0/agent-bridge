@@ -95,6 +95,8 @@ type Config struct {
 	UsageLog               string               `json:"usage_log"`
 	Metrics                bool                 `json:"metrics"`
 	Admin                  bool                 `json:"admin"`
+	OllamaURL              string               `json:"ollama_url"`
+	OllamaClientURL        string               `json:"ollama_client_url"`
 	CORSOrigins            []string             `json:"cors_origins"`
 	AllowBypassPermissions bool                 `json:"allow_bypass_permissions"`
 	BuiltinModels          bool                 `json:"builtin_models"`

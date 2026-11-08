@@ -81,6 +81,41 @@ The same flows can also be run in a terminal:
 `docker compose exec kimi kimi login --region global`,
 `docker compose exec -it claude claude auth login`.
 
+## Embedding models
+
+The CLIs do not produce embeddings, so the stack includes an optional
+[Ollama](https://ollama.com) service with local embedding models: free, and
+the texts never leave the machine. It starts with the `embeddings` profile
+(`COMPOSE_PROFILES=embeddings` in `.env`, the default of `.env.example`)
+and listens on `127.0.0.1:11434`.
+
+The **Embeddings** section of the admin page manages it:
+
+- shows whether Ollama is reachable and the endpoint for the clients
+  (`http://127.0.0.1:11434/v1`, OpenAI-compatible);
+- lists the installed models (size, family, whether it is an embedding model);
+- downloads a suggested model (`bge-m3` for Italian and other languages,
+  `nomic-embed-text`, `mxbai-embed-large`, `all-minilm`) or any other by
+  name, with progress and cancel;
+- tests a model (one embedding: dimensions and time) and deletes it.
+
+Clients keep two endpoints: chat on the bridge (`http://127.0.0.1:8787/v1`,
+model `bridge/sonnet`) and embeddings on Ollama (`http://127.0.0.1:11434/v1`,
+for example model `bge-m3`, any API key). The bridge does not compute or
+proxy embeddings.
+
+```sh
+curl -s http://127.0.0.1:11434/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{"model":"bge-m3","input":"ciao mondo"}'
+```
+
+Models are stored in the `ollama` volume. Settings: `AGENT_BRIDGE_OLLAMA_URL`
+(Ollama as the bridge reaches it, `http://ollama:11434`; empty hides the
+section), `AGENT_BRIDGE_OLLAMA_CLIENT_URL` (the address shown to clients),
+`OLLAMA_PORT`, `OLLAMA_VERSION`. Without Docker, set `ollama_url` in the
+configuration file to a local Ollama.
+
 ## Admin API
 
 Enabled with `admin: true` or `AGENT_BRIDGE_ADMIN=1` (the image sets it).
@@ -93,6 +128,11 @@ Enabled with `admin: true` or `AGENT_BRIDGE_ADMIN=1` (the image sets it).
 | `POST /admin/api/logins/{cli}` | Starts the login of `claude`, `codex` or `kimi` (or returns the running one) |
 | `POST /admin/api/logins/{cli}/input` | Sends `{"text": "..."}` (one line) to the running login |
 | `DELETE /admin/api/logins/{cli}` | Cancels the running login |
+| `GET /admin/api/embeddings` | Ollama state, installed models, downloads |
+| `POST /admin/api/embeddings/pulls` | Downloads `{"model": "..."}` |
+| `DELETE /admin/api/embeddings/pulls?model=` | Cancels a download |
+| `DELETE /admin/api/embeddings/models?model=` | Deletes a model |
+| `POST /admin/api/embeddings/test` | One test embedding of `{"model": "..."}` |
 
 Every API call requires the Bearer key when one is set; the calls that change
 state also require the header `X-Agent-Bridge-Admin: 1`, which a browser

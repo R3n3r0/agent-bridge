@@ -47,6 +47,7 @@ func (s *Server) adminRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /admin/api/logins/{cli}", s.auth(s.adminWrite(s.handleLoginStart)))
 	mux.Handle("POST /admin/api/logins/{cli}/input", s.auth(s.adminWrite(s.handleLoginInput)))
 	mux.Handle("DELETE /admin/api/logins/{cli}", s.auth(s.adminWrite(s.handleLoginCancel)))
+	s.embeddingRoutes(mux)
 }
 
 // adminWrite requires the admin header on state-changing requests.

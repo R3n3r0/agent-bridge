@@ -4,6 +4,9 @@
 #   cp .env.example .env        # set AGENT_BRIDGE_API_KEY
 #   docker compose up -d        # or: docker compose up -d codex
 #   open http://127.0.0.1:8787/admin to log in to the CLIs
+#
+# The ollama service (profile "embeddings", on with COMPOSE_PROFILES in
+# .env) serves local embedding models, managed from the same admin page.
 
 name: agent-bridge
 
@@ -25,6 +28,10 @@ x-env: &env
   AGENT_BRIDGE_LOG_LEVEL: ${AGENT_BRIDGE_LOG_LEVEL:-info}
   # Kimi login: global (kimi.ai) or mainland-cn (kimi.com).
   AGENT_BRIDGE_KIMI_REGION: ${AGENT_BRIDGE_KIMI_REGION:-global}
+  # Embedding models: the Ollama server as the bridge reaches it, and the
+  # base_url clients use. An empty AGENT_BRIDGE_OLLAMA_URL hides them.
+  AGENT_BRIDGE_OLLAMA_URL: ${AGENT_BRIDGE_OLLAMA_URL-http://ollama:11434}
+  AGENT_BRIDGE_OLLAMA_CLIENT_URL: ${AGENT_BRIDGE_OLLAMA_CLIENT_URL:-http://127.0.0.1:${OLLAMA_PORT:-11434}/v1}
 
 services:
   claude:
@@ -55,6 +62,16 @@ services:
     ports:
       - "127.0.0.1:${KIMI_PORT:-8789}:8787"
 
+  ollama:
+    image: ollama/ollama:${OLLAMA_VERSION:-latest}
+    profiles: [embeddings]
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+    ports:
+      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
+
 volumes:
   home:
   data:
+  ollama:
